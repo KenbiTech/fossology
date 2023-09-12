@@ -24,7 +24,7 @@ services:
       - FOSSOLOGY_DB_HOST=<DB_HOST>
       - FOSSOLOGY_DB_NAME=<DB_NAME>
       - FOSSOLOGY_DB_USER=<DB_USER>
-      - FOSSOLOGY_DB_PASSWORD="<DB_PASSWORD>"
+      - FOSSOLOGY_DB_PASSWORD=<DB_PASSWORD>
     command: scheduler
     volumes:
       - repository:/srv/fossology/repository/
@@ -47,7 +47,7 @@ services:
       - FOSSOLOGY_DB_HOST=<DB_HOST>
       - FOSSOLOGY_DB_NAME=<DB_NAME>
       - FOSSOLOGY_DB_USER=<DB_USER>
-      - FOSSOLOGY_DB_PASSWORD="<DB_PASSWORD>"
+      - FOSSOLOGY_DB_PASSWORD=<DB_PASSWORD>
     command: web
     ports:
       - "8000:8000"
