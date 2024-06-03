@@ -386,8 +386,8 @@ ORDER BY lft asc
         array_pop($rgtStack);
       }
       if ($row['lft'] > $lastLft) {
-        array_push($pathStack, $row['ufile_name']);
-        array_push($rgtStack, $row['rgt']);
+        $pathStack[] = $row['ufile_name'];
+        $rgtStack[] = $row['rgt'];
         $lastLft = $row['lft'];
       }
     }
@@ -527,10 +527,9 @@ ORDER BY lft asc
     if (false === $row) {
       return null;
     }
-    $license = new License(intval($row['rf_pk']), $row['rf_shortname'],
+    return new License(intval($row['rf_pk']), $row['rf_shortname'],
       $row['rf_fullname'], $row['rf_risk'], $row['rf_text'], $row['rf_url'],
       $row['rf_detector_type'], $row['rf_spdx_id']);
-    return $license;
   }
 
   /**
@@ -570,11 +569,12 @@ ORDER BY lft asc
    * @param bool[] $licenseRemovals
    * @param string $refText
    * @param bool $ignoreIrrelevant Ignore irrelevant files while scanning
+   * @param bool $scanOnlyFindings scan the files with license findings only
    * @param string $delimiters Delimiters for bulk scan,
    *                           null or "DEFAULT" for default values
    * @return int lrp_pk on success or -1 on fail
    */
-  public function insertBulkLicense($userId, $groupId, $uploadTreeId, $licenseRemovals, $refText, $ignoreIrrelevant=true, $delimiters=null)
+  public function insertBulkLicense($userId, $groupId, $uploadTreeId, $licenseRemovals, $refText, $ignoreIrrelevant=true, $delimiters=null, $scanFindingsOnly=false)
   {
     if (strcasecmp($delimiters, "DEFAULT") === 0) {
       $delimiters = null;
@@ -582,12 +582,13 @@ ORDER BY lft asc
       $delimiters = StringOperation::replaceUnicodeControlChar($delimiters);
     }
     $licenseRefBulkIdResult = $this->dbManager->getSingleRow(
-        "INSERT INTO license_ref_bulk (user_fk, group_fk, uploadtree_fk, rf_text, ignore_irrelevant, bulk_delimiters)
-      VALUES ($1,$2,$3,$4,$5,$6) RETURNING lrb_pk",
+        "INSERT INTO license_ref_bulk (user_fk, group_fk, uploadtree_fk, rf_text, ignore_irrelevant, bulk_delimiters, scan_findings)
+      VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING lrb_pk",
         array($userId, $groupId, $uploadTreeId,
           StringOperation::replaceUnicodeControlChar($refText),
           $this->dbManager->booleanToDb($ignoreIrrelevant),
-          $delimiters),
+          $delimiters,
+          $this->dbManager->booleanToDb($scanFindingsOnly)),
         __METHOD__ . '.getLrb'
     );
     if ($licenseRefBulkIdResult === false) {

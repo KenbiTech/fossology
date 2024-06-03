@@ -12,12 +12,12 @@
 
 namespace Fossology\UI\Api\Controllers;
 
-use Fossology\Lib\Auth\Auth;
-use Fossology\Lib\Dao\UploadDao;
-use Fossology\Lib\Db\DbManager;
+use Fossology\UI\Api\Exceptions\HttpBadRequestException;
+use Fossology\UI\Api\Exceptions\HttpErrorException;
+use Fossology\UI\Api\Exceptions\HttpInternalServerErrorException;
 use Fossology\UI\Api\Helper\ResponseHelper;
-use Fossology\UI\Api\Models\Info;
 use Fossology\UI\Api\Models\Conf;
+use Fossology\UI\Api\Models\Info;
 use Fossology\UI\Api\Models\InfoType;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -26,23 +26,57 @@ class ConfController extends RestController
   /**
    * Get all conf info for a particular upload
    *
-   * @param  ServerRequestInterface $request
-   * @param  ResponseHelper         $response
-   * @param  array                  $args
+   * @param ServerRequestInterface $request
+   * @param ResponseHelper $response
+   * @param array $args
    * @return ResponseHelper
+   * @throws HttpErrorException
    */
   public function getConfInfo($request, $response, $args)
   {
     $uploadPk = $args["id"];
-    $returnVal = null;
-    if (!$this->dbHelper->doesIdExist("upload", "upload_pk", $uploadPk)) {
-      $returnVal = new Info(404, "Upload does not exist", InfoType::ERROR);
-    }
-    if ($returnVal !== null) {
-      return $response->withJson($returnVal->getArray(), $returnVal->getCode());
-    }
+    $this->uploadAccessible($uploadPk);
+
     $response_view = $this->restHelper->getUploadDao()->getReportInfo($uploadPk);
     $returnVal = new Conf($response_view);
     return $response->withJson($returnVal->getArray(), 200);
+  }
+
+  /**
+   * Update config data for the admin
+   *
+   * @param ServerRequestInterface $request
+   * @param ResponseHelper $response
+   * @param array $args
+   * @return ResponseHelper
+   * @throws HttpErrorException
+   */
+  public function updateConfData($request, $response, $args)
+  {
+    $uploadPk = $args["id"];
+    $body = $this->getParsedBody($request);
+    $confObj = new Conf();
+
+    $this->uploadAccessible($uploadPk);
+
+    if (empty($body) || !array_key_exists("key", $body) ||
+        !array_key_exists("value", $body)) {
+      throw new HttpBadRequestException("Invalid request.");
+    } elseif (!$confObj->doesKeyExist($body['key'])) {
+      throw new HttpBadRequestException("Invalid key " . $body["key"] .
+        " sent.");
+    }
+
+    $key = $body['key'];
+    $value = $body['value'];
+    $result = $this->restHelper->getUploadDao()->updateReportInfo($uploadPk,
+      $confObj->getKeyColumnName($key), $value);
+
+    if ($result) {
+      $info = new Info(200, "Successfully updated " . $key, InfoType::INFO);
+    } else {
+      throw new HttpInternalServerErrorException("Failed to update " . $key);
+    }
+    return $response->withJson($info->getarray(), $info->getCode());
   }
 }

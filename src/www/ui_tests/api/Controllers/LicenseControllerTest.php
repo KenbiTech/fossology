@@ -19,11 +19,16 @@ use Fossology\Lib\Dao\LicenseStdCommentDao;
 use Fossology\Lib\Dao\UserDao;
 use Fossology\Lib\Db\DbManager;
 use Fossology\UI\Api\Controllers\LicenseController;
+use Fossology\UI\Api\Exceptions\HttpBadRequestException;
+use Fossology\UI\Api\Exceptions\HttpConflictException;
+use Fossology\UI\Api\Exceptions\HttpForbiddenException;
+use Fossology\UI\Api\Exceptions\HttpNotFoundException;
 use Fossology\UI\Api\Helper\DbHelper;
 use Fossology\UI\Api\Helper\ResponseHelper;
 use Fossology\UI\Api\Helper\RestHelper;
 use Fossology\UI\Api\Models\Info;
 use Fossology\UI\Api\Models\InfoType;
+use Fossology\UI\Api\Models\ApiVersion;
 use Fossology\UI\Api\Models\License;
 use Fossology\UI\Api\Models\Obligation;
 use Mockery as M;
@@ -288,7 +293,7 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
    * @param array $licenses
    * @return array
    */
-  private function traslateLicenseToDb($licenses)
+  private function translateLicenseToDb($licenses)
   {
     $licenseList = [];
     foreach ($licenses as $license) {
@@ -384,18 +389,10 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
     $this->licenseDao->shouldReceive('getLicenseByShortName')
       ->withArgs([$licenseShortName, $this->groupId])
       ->andReturn(null);
-    $info = new Info(404,
-      "No license found with short name '{$licenseShortName}'.",
-      InfoType::ERROR);
-    $expectedResponse = (new ResponseHelper())->withJson($info->getArray(),
-      $info->getCode());
+    $this->expectException(HttpNotFoundException::class);
 
-    $actualResponse = $this->licenseController->getLicense($request,
-      new ResponseHelper(), ['shortname' => $licenseShortName]);
-    $this->assertEquals($expectedResponse->getStatusCode(),
-      $actualResponse->getStatusCode());
-    $this->assertEquals($this->getResponseJson($expectedResponse),
-      $this->getResponseJson($actualResponse));
+    $this->licenseController->getLicense($request, new ResponseHelper(),
+      ['shortname' => $licenseShortName]);
   }
 
   /**
@@ -421,7 +418,7 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
       ->withArgs(["all", $this->groupId])->andReturn(4);
     $this->dbHelper->shouldReceive('getLicensesPaginated')
       ->withArgs([1, 100, "all", $this->groupId, false])
-      ->andReturn($this->traslateLicenseToDb($licenses));
+      ->andReturn($this->translateLicenseToDb($licenses));
 
     $responseLicense = [];
     foreach ($licenses as $license) {
@@ -457,19 +454,9 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
       "/license"), $requestHeaders, [], [], $body);
     $this->dbHelper->shouldReceive('getLicenseCount')
       ->withArgs(["all", $this->groupId])->andReturn(4);
+    $this->expectException(HttpBadRequestException::class);
 
-    $info = new Info(400, "Can not exceed total pages: 1", InfoType::ERROR);
-    $expectedResponse = (new ResponseHelper())->withHeader("X-Total-Pages", 1)
-      ->withJson($info->getArray(), $info->getCode());
-
-    $actualResponse = $this->licenseController->getAllLicenses($request,
-      new ResponseHelper(), []);
-    $this->assertEquals($expectedResponse->getStatusCode(),
-      $actualResponse->getStatusCode());
-    $this->assertEquals($this->getResponseJson($expectedResponse),
-      $this->getResponseJson($actualResponse));
-    $this->assertEquals($expectedResponse->getHeaders(),
-      $actualResponse->getHeaders());
+    $this->licenseController->getAllLicenses($request, new ResponseHelper(), []);
   }
 
   /**
@@ -603,18 +590,9 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
     $body->seek(0);
     $request = new Request("POST", new Uri("HTTP", "localhost", 80,
       "/license"), $requestHeaders, [], [], $body);
+    $this->expectException(HttpBadRequestException::class);
 
-    $info = new Info(400, "Property 'shortName' is required.",
-      InfoType::ERROR);
-    $expectedResponse = (new ResponseHelper())->withJson($info->getArray(),
-      $info->getCode());
-
-    $actualResponse = $this->licenseController->createLicense($request,
-      new ResponseHelper(), []);
-    $this->assertEquals($expectedResponse->getStatusCode(),
-      $actualResponse->getStatusCode());
-    $this->assertEquals($this->getResponseJson($expectedResponse),
-      $this->getResponseJson($actualResponse));
+    $this->licenseController->createLicense($request, new ResponseHelper(), []);
   }
 
   /**
@@ -637,18 +615,9 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
     $request = new Request("POST", new Uri("HTTP", "localhost", 80,
       "/license"), $requestHeaders, [], [], $body);
     $_SESSION[Auth::USER_LEVEL] = Auth::PERM_WRITE;
+    $this->expectException(HttpForbiddenException::class);
 
-    $info = new Info(403, "Need to be admin to create non-candidate license.",
-      InfoType::ERROR);
-    $expectedResponse = (new ResponseHelper())->withJson($info->getArray(),
-      $info->getCode());
-
-    $actualResponse = $this->licenseController->createLicense($request,
-      new ResponseHelper(), []);
-    $this->assertEquals($expectedResponse->getStatusCode(),
-      $actualResponse->getStatusCode());
-    $this->assertEquals($this->getResponseJson($expectedResponse),
-      $this->getResponseJson($actualResponse));
+    $this->licenseController->createLicense($request, new ResponseHelper(), []);
   }
 
   /**
@@ -680,18 +649,9 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
     $this->dbManager->shouldReceive('getSingleRow')
       ->withArgs([$sql, [$license->getShortName(), $this->groupId], M::any()])
       ->andReturn(["cnt" => 1]);
+    $this->expectException(HttpConflictException::class);
 
-    $info = new Info(409, "License with shortname '" .
-      $license->getShortName() . "' already exists!", InfoType::ERROR);
-    $expectedResponse = (new ResponseHelper())->withJson($info->getArray(),
-      $info->getCode());
-
-    $actualResponse = $this->licenseController->createLicense($request,
-      new ResponseHelper(), []);
-    $this->assertEquals($expectedResponse->getStatusCode(),
-      $actualResponse->getStatusCode());
-    $this->assertEquals($this->getResponseJson($expectedResponse),
-      $this->getResponseJson($actualResponse));
+    $this->licenseController->createLicense($request, new ResponseHelper(), []);
   }
 
   /**
@@ -775,18 +735,10 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
     $this->dbHelper->shouldReceive('doesIdExist')
       ->withArgs(["license_candidate", "rf_pk", $license->getId()])
       ->andReturn(true);
+    $this->expectException(HttpForbiddenException::class);
 
-    $info = new Info(403, "Operation not permitted for this group.",
-      InfoType::ERROR);
-    $expectedResponse = (new ResponseHelper())->withJson($info->getArray(),
-      $info->getCode());
-
-    $actualResponse = $this->licenseController->updateLicense($request,
-      new ResponseHelper(), ["shortname" => $license->getShortName()]);
-    $this->assertEquals($expectedResponse->getStatusCode(),
-      $actualResponse->getStatusCode());
-    $this->assertEquals($this->getResponseJson($expectedResponse),
-      $this->getResponseJson($actualResponse));
+    $this->licenseController->updateLicense($request, new ResponseHelper(),
+      ["shortname" => $license->getShortName()]);
   }
 
   /**
@@ -820,18 +772,10 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
     $this->dbHelper->shouldReceive('doesIdExist')
       ->withArgs(["license_candidate", "rf_pk", $license->getId()])
       ->andReturn(false);
+    $this->expectException(HttpForbiddenException::class);
 
-    $info = new Info(403, "Only admin can edit main licenses.",
-      InfoType::ERROR);
-    $expectedResponse = (new ResponseHelper())->withJson($info->getArray(),
-      $info->getCode());
-
-    $actualResponse = $this->licenseController->updateLicense($request,
-      new ResponseHelper(), ["shortname" => $license->getShortName()]);
-    $this->assertEquals($expectedResponse->getStatusCode(),
-      $actualResponse->getStatusCode());
-    $this->assertEquals($this->getResponseJson($expectedResponse),
-      $this->getResponseJson($actualResponse));
+    $this->licenseController->updateLicense($request, new ResponseHelper(),
+      ["shortname" => $license->getShortName()]);
   }
 
 
@@ -866,6 +810,8 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
 
     $this->adminLicensePlugin->shouldReceive('handleFileUpload')-> withArgs([NULL,$delimiter,$enclosure])
       ->andReturn($res);
+    $_SESSION[Auth::USER_LEVEL] = Auth::PERM_ADMIN;
+    $this->auth->shouldReceive('isAdmin')->andReturn(true);
 
     $info = new Info(200, "random_message", InfoType::INFO);
     $expectedResponse = (new ResponseHelper())->withJson($info->getArray(),
@@ -885,7 +831,7 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
    * -# User is admin
    * -# License-candidate is does exist
    * -# Check if response is 200
-   * -# Check if reponse-body matches
+   * -# Check if response-body matches
    */
   public function testDeleteAdminLicenseCandidateIsAdmin(){
     $_SESSION[Auth::USER_LEVEL] = Auth::PERM_ADMIN;
@@ -909,28 +855,25 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
    * -# User is not-admin
    * -# License-candidate is does exist
    * -# Check if response is 400
-   * -# Check if reponse-body matches
+   * -# Check if response-body matches
    */
   public function testDeleteAdminLicenseCandidateNotAdmin(){
     $_SESSION[Auth::USER_LEVEL] = Auth::PERM_WRITE;
     $id = 1;
     $this->auth->shouldReceive('isAdmin')->andReturn(false);
-    $expectedResponse = new Info(403, "Only admin can perform this operation.", InfoType::ERROR);
-    $actualResponse = $this->licenseController->deleteAdminLicenseCandidate(null,
+    $this->expectException(HttpForbiddenException::class);
+
+    $this->licenseController->deleteAdminLicenseCandidate(null,
       new ResponseHelper(), ["id" => $id]);
-    $this->assertEquals($expectedResponse->getCode(),
-      $actualResponse->getStatusCode());
-    $this->assertEquals($expectedResponse->getArray(),
-      $this->getResponseJson($actualResponse));
   }
 
   /**
    * @test
    * -# Test for LicenseController::deleteAdminLicenseCandidate() to delete license-candidate.
    * -# User is admin
-   * -# License-candidate is doesn't exist
+   * -# License-candidate don't exist
    * -# Check if response is 404
-   * -# Check if reponse-body matches
+   * -# Check if rseponse-body matches
    */
   public function testDeleteAdminLicenseCandidateNotFound(){
     $_SESSION[Auth::USER_LEVEL] = Auth::PERM_ADMIN;
@@ -939,13 +882,10 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
     $this->licenseCandidatePlugin->shouldReceive('getDataRow')->withArgs([$id])->andReturn(false);
     $res = new Response('true',Response::HTTP_OK,array('Content-type'=>'text/plain'));
     $this->licenseCandidatePlugin->shouldReceive("doDeleteCandidate")->withArgs([$id])->andReturn($res);
-    $expectedResponse = new Info(404, "License candidate not found.", InfoType::ERROR);
-    $actualResponse = $this->licenseController->deleteAdminLicenseCandidate(null,
+    $this->expectException(HttpNotFoundException::class);
+
+    $this->licenseController->deleteAdminLicenseCandidate(null,
       new ResponseHelper(), ["id" => $id]);
-    $this->assertEquals($expectedResponse->getCode(),
-      $actualResponse->getStatusCode());
-    $this->assertEquals($expectedResponse->getArray(),
-      $this->getResponseJson($actualResponse));
   }
 
 
@@ -957,11 +897,13 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
    */
   public function testGetCandidates()
   {
+    $request = M::mock(Request::class);
+    $request->shouldReceive('getAttribute')->andReturn(ApiVersion::V1);
     $_SESSION[Auth::USER_LEVEL] = Auth::PERM_ADMIN;
     $this->licenseCandidatePlugin->shouldReceive('getCandidateArrayData')->andReturn([]);
 
     $expectedResponse = (new ResponseHelper())->withJson([], 200);
-    $actualResponse = $this->licenseController->getCandidates(null,
+    $actualResponse = $this->licenseController->getCandidates($request,
       new ResponseHelper(), null);
     $this->assertEquals($expectedResponse->getStatusCode(),
       $actualResponse->getStatusCode());
@@ -975,17 +917,14 @@ class LicenseControllerTest extends \PHPUnit\Framework\TestCase
    * -# Check if status is 403
    */
   public function testGetCandidatesNoAdmin()
-  {
+  { 
+    $request = M::mock(Request::class);
+    $request->shouldReceive('getAttribute')->andReturn(ApiVersion::V1);
     $_SESSION[Auth::USER_LEVEL] = Auth::PERM_READ;
 
-    $info = new Info(403, "You are not allowed to access the endpoint.", InfoType::ERROR);
-    $expectedResponse = (new ResponseHelper())->withJson($info->getArray(),
-      $info->getCode());
-    $actualResponse = $this->licenseController->getCandidates(null,
+    $this->expectException(HttpForbiddenException::class);
+
+    $this->licenseController->getCandidates($request,
       new ResponseHelper(), null);
-    $this->assertEquals($expectedResponse->getStatusCode(),
-      $actualResponse->getStatusCode());
-    $this->assertEquals($this->getResponseJson($expectedResponse),
-      $this->getResponseJson($actualResponse));
   }
 }

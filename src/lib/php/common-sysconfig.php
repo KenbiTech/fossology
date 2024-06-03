@@ -69,6 +69,7 @@ function ConfigInit($sysconfdir, &$SysConf, $exitOnDbFail=true)
   $PG_CONN = get_pg_conn($sysconfdir, $SysConf, $exitOnDbFail);
 
   populate_from_sysconfig($PG_CONN, $SysConf);
+  return $PG_CONN;
 } // ConfigInit()
 
 /**
@@ -357,21 +358,22 @@ function Populate_sysconfig()
   $variable = "CommonObligation";
   $contextNamePrompt = _("Common Obligation");
   $contextValue = "";
-  $contextDesc = _("Common Obligation Text, add line break at the end of the line");
+  $commonExObligations = _('you can add HTML line break, Also use json format for table rows');
+  $contextDesc = _("Common Obligation Text,". "$commonExObligations");
   $valueArray[$variable] = array("'$variable'", "'$contextValue'", "'$contextNamePrompt'",
     strval(CONFIG_TYPE_TEXTAREA), "'ReportText'", "2", "'$contextDesc'", "null", "null");
 
   $variable = "AdditionalObligation";
   $contextNamePrompt = _("Additional Obligation");
   $contextValue = "";
-  $contextDesc = _("Additional Obligation Text, add line break at the end of the line");
+  $contextDesc = _("Additional Obligation Text,". "$commonExObligations");
   $valueArray[$variable] = array("'$variable'", "'$contextValue'", "'$contextNamePrompt'",
     strval(CONFIG_TYPE_TEXTAREA), "'ReportText'", "3", "'$contextDesc'", "null", "null");
 
   $variable = "ObligationAndRisk";
   $contextNamePrompt = _("Obligation And Risk Assessment");
   $contextValue = "";
-  $contextDesc = _("Obligations and risk assessment, add line break at the end of the line");
+  $contextDesc = _("Obligations and risk assessment,". "$commonExObligations");
   $valueArray[$variable] = array("'$variable'", "'$contextValue'", "'$contextNamePrompt'",
     strval(CONFIG_TYPE_TEXTAREA), "'ReportText'", "4", "'$contextDesc'", "null", "null");
 
@@ -585,9 +587,6 @@ function Populate_sysconfig()
     if (empty($VarRec)) {
       $sql = "INSERT INTO sysconfig (" . implode(",", $columns) . ") VALUES (" .
         implode(",", $values) . ");";
-      $result = pg_query($PG_CONN, $sql);
-      DBCheckResult($result, $sql, __FILE__, __LINE__);
-      pg_free_result($result);
     } else { // Values exist, update them
       $updateString = [];
       foreach ($columns as $index => $column) {
@@ -597,10 +596,10 @@ function Populate_sysconfig()
       }
       $sql = "UPDATE sysconfig SET " . implode(",", $updateString) .
         " WHERE variablename='$variable';";
-      $result = pg_query($PG_CONN, $sql);
-      DBCheckResult($result, $sql, __FILE__, __LINE__);
-      pg_free_result($result);
     }
+    $result = pg_query($PG_CONN, $sql);
+    DBCheckResult($result, $sql, __FILE__, __LINE__);
+    pg_free_result($result);
     unset($VarRec);
   }
 }
@@ -789,10 +788,40 @@ function check_IP($ip)
 
 /**
  * Set PYTHONPATH to appropriate location
+ * @return array<string> Return the path as an associative array.
  */
-function set_python_path()
+function set_python_path(): array
 {
   global $SysConf;
-  putenv("PYTHONPATH=/home/" . $SysConf['DIRECTORIES']['PROJECTUSER'] .
-      "/pythondeps");
+  $path = "/home/" . $SysConf['DIRECTORIES']['PROJECTUSER'] . "/pythondeps";
+  putenv("PYTHONPATH=$path");
+  return ["PYTHONPATH" => $path];
+}
+/**
+ * \brief Get system load average.
+ *
+ * Get no of cores using nproc command.
+ * Get load using sys_getloadavg
+ *
+ * \return button with different colors
+ */
+function get_system_load_average()
+{
+  // Get No.of cores
+  $cores = trim(shell_exec("nproc"));
+
+  // Get CPU load
+  $load = sys_getloadavg()[1];
+
+  $percentageOfLoad = ($load / $cores);
+
+  if ($percentageOfLoad < 0.30) {
+    $class = 'btn-success';
+  } else if ($percentageOfLoad < 0.60) {
+    $class = 'btn-warning';
+  } else {
+    $class = 'btn-danger';
+  }
+
+  return '<button type="button" aria-disabled="true" disabled class="btn '.$class.'">System Load</button>';
 }

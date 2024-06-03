@@ -136,8 +136,10 @@ class InfoControllerTest extends \PHPUnit\Framework\TestCase
       ],
       "fossology" => $fossInfo
     ), 200);
-    $actualResponse = $this->infoController->getInfo(null,
-      new ResponseHelper(), []);
+    $request = new Request("POST", new Uri("HTTP", "localhost"), new Headers(),
+      [], [], (new StreamFactory())->createStream());
+    $actualResponse = $this->infoController->getInfo($request,
+      new ResponseHelper());
     $this->assertEquals($expectedResponse->getStatusCode(),
       $actualResponse->getStatusCode());
     $this->assertEquals($this->getResponseJson($expectedResponse),
@@ -157,7 +159,7 @@ class InfoControllerTest extends \PHPUnit\Framework\TestCase
       ->withJson($yamlDocArray, 200)
       ->withHeader("Content-Disposition", "inline; filename=\"openapi.json\"");
     $actualResponseJson = $this->infoController->getOpenApi($requestJson,
-      new ResponseHelper(), []);
+      new ResponseHelper());
     $this->assertEquals($expectedResponseJson->getStatusCode(),
       $actualResponseJson->getStatusCode());
     $this->assertEquals($this->getResponseJson($expectedResponseJson),
@@ -179,7 +181,7 @@ class InfoControllerTest extends \PHPUnit\Framework\TestCase
       ->withStatus(200);
     $expectedResponseYaml->getBody()->write(file_get_contents(self::YAML_LOC));
     $actualResponseYaml = $this->infoController->getOpenApi($requestJson,
-      new ResponseHelper(), []);
+      new ResponseHelper());
     $this->assertEquals($expectedResponseYaml->getStatusCode(),
       $actualResponseYaml->getStatusCode());
     $this->assertEquals($expectedResponseYaml->getBody()->getContents(),

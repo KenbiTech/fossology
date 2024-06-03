@@ -11,6 +11,7 @@ namespace Fossology\Lib\Dao;
 use Fossology\Lib\Data\Tree\Item;
 use Fossology\Lib\Data\Tree\ItemTreeBounds;
 use Fossology\Lib\Data\Upload\Upload;
+use Fossology\Lib\Data\Upload\UploadEvents;
 use Fossology\Lib\Data\UploadStatus;
 use Fossology\Lib\Db\DbManager;
 use Fossology\Lib\Exception;
@@ -49,7 +50,25 @@ class UploadDao
     "dnufiles" => array("Do not use Files" => true),
     "changelog" => array("Clearing Protocol Change Log" => true)
   );
-
+  const CLIXML_REPORT_HEADINGS = array(
+    "mainlicensesclixml" => array("Main Licenses" => true),
+    "licensepath" => array("License File Path" => true),
+    "licensehash" => array("License File Hash" => true),
+    "copyrightsclixml" => array("Copyrights" => true),
+    "copyrightpath" => array("Copyright File Path" => true),
+    "copyrighthash" => array("Copyright File Hash" => true),
+    "exportrestrictionsclixml" => array("Export Restrictions(ECC)" => true),
+    "eccpath" => array("ECC File Path" => true),
+    "ecchash" => array("ECC File Hash" => true),
+    "intellectualPropertyclixml" => array("Identified Patent Relevant Analysis(IPRA)" => true),
+    "iprapath" => array("IPRA File Path" => true),
+    "iprahash" => array("IPRA File Hash" => true),
+    "allobligations" => array("All Obligations" => true),
+    "acknowledgementsclixml" => array("Acknowledgements" => true),
+    "irrelevantfilesclixml" => array("Irrelevant Files" => true),
+    "dnufilesclixml" => array("Do not use Files" => true),
+    "notesclixml" => array("Additional Notes" => true)
+  );
   /** @var DbManager */
   private $dbManager;
   /** @var Logger */
@@ -151,7 +170,7 @@ class UploadDao
    * @param int $uploadId
    * @param string|null
    * @throws Exception
-   * @return ItemTreeBounds
+   * @return ItemTreeBounds|false
    */
   public function getParentItemBounds($uploadId, $uploadTreeTableName = null)
   {
@@ -190,8 +209,7 @@ class UploadDao
           AND ((ufile_mode & (3<<28))=0)
           AND pfile_fk != 0",
         $parameters, $stmt);
-    $fileCount = intval($row["count"]);
-    return $fileCount;
+    return intval($row["count"]);
   }
 
   private function handleUploadIdForTable($uploadTreeTableName, $uploadId, &$parameters)
@@ -259,6 +277,40 @@ class UploadDao
     }
   }
 
+  /**
+   * Get the date when user was first assigned to the upload.
+   *
+   * @param int $uploadId Upload to get assignee date
+   * @return string|null Date when user was assigned to the upload, null if not
+   *                     exists.
+   */
+  public function getAssigneeDate(int $uploadId): ?string
+  {
+    $sql = "SELECT event_ts FROM upload_events WHERE upload_fk = $1 " .
+      "AND event_type = " . UploadEvents::ASSIGNEE_EVENT;
+    $row = $this->dbManager->getSingleRow($sql, [$uploadId], __METHOD__);
+    if (empty($row) || empty($row["event_ts"])) {
+      return null;
+    }
+    return $row["event_ts"];
+  }
+
+  /**
+   * Get the date when upload was closed or rejected.
+   * @param int $uploadId Upload to get closing date
+   * @return string|null  Date when upload was closed or rejected, null if not
+   *                      exists.
+   */
+  public function getClosedDate(int $uploadId): ?string
+  {
+    $sql = "SELECT event_ts FROM upload_events WHERE upload_fk = $1 " .
+      "AND event_type = " . UploadEvents::UPLOAD_CLOSED_EVENT;
+    $row = $this->dbManager->getSingleRow($sql, [$uploadId], __METHOD__);
+    if (empty($row) || empty($row["event_ts"])) {
+      return null;
+    }
+    return $row["event_ts"];
+  }
 
   /**
    * \brief Get the uploadtree table name for this upload_pk
@@ -380,8 +432,8 @@ class UploadDao
   }
 
   /**
-   * @var ItemTreeBounds $itemTreeBounds
-   * @param $uploadTreeView
+   * @param ItemTreeBounds $itemTreeBounds
+   * @param UploadTreeProxy $uploadTreeView
    * @return int
    */
   public function getContainingFileCount(ItemTreeBounds $itemTreeBounds, UploadTreeProxy $uploadTreeView)
@@ -389,8 +441,7 @@ class UploadDao
     $sql = "SELECT count(*) FROM " . $uploadTreeView->getDbViewName() . " WHERE lft BETWEEN $1 AND $2";
     $result = $this->dbManager->getSingleRow($sql
         , array($itemTreeBounds->getLeft(), $itemTreeBounds->getRight()), __METHOD__ . $uploadTreeView->asCTE());
-    $output = $result['count'];
-    return $output;
+    return $result['count'];
   }
 
   /**
@@ -465,10 +516,9 @@ class UploadDao
         intval($uploadEntry['lft']), intval($uploadEntry['rgt']));
 
     $parent = $uploadEntry['parent'];
-    $item = new Item(
+    return new Item(
         $itemTreeBounds, $parent !== null ? intval($parent) : null, intval($uploadEntry['pfile_fk']), intval($uploadEntry['ufile_mode']), $uploadEntry['ufile_name']
     );
-    return $item;
   }
 
   /**
@@ -636,8 +686,8 @@ ORDER BY lft asc
         array_pop($rgtStack);
       }
       if ($row['lft'] > $lastLft) {
-        array_push($pathStack, $row['ufile_name']);
-        array_push($rgtStack, $row['rgt']);
+        $pathStack[] = $row['ufile_name'];
+        $rgtStack[] = $row['rgt'];
         $lastLft = $row['lft'];
       }
     }
@@ -719,8 +769,55 @@ ORDER BY lft asc
     }
     return $row;
   }
+
+  /**
+   * @brief Update report info for upload
+   * @param int $uploadId  Upload ID to update
+   * @param string $column Column to update
+   * @param string|array $value New value
+   * @return boolean True on success
+   */
+  public function updateReportInfo($uploadId, $column, $value)
+  {
+    if ($column === "ri_unifiedcolumns") {
+      $value = json_decode($value, true);
+      $oldValues = $this->getReportInfo($uploadId)["ri_unifiedcolumns"];
+      if (!empty($oldValues)) {
+        $oldValues = json_decode($oldValues, true);
+      } else {
+        $oldValues = self::UNIFIED_REPORT_HEADINGS;
+      }
+      foreach ($value as $key => $val) {
+        $newValText = array_keys($val)[0];
+        $newValValue = array_values($val)[0];
+        $newValValue = ($newValValue === true || $newValValue == "true") ? "on" : null;
+        $oldValues[$key] = [$newValText => $newValValue];
+      }
+      $value = json_encode($oldValues);
+    } elseif ($column === "ri_excluded_obligations") {
+      $value = json_decode($value, true);
+      $oldValues = $this->getReportInfo($uploadId)["ri_excluded_obligations"];
+      if (!empty($oldValues)) {
+        $oldValues = json_decode($oldValues, true);
+      } else {
+        $oldValues = [];
+      }
+      foreach ($value as $key => $newValue) {
+        $oldValues[$key] = $newValue;
+      }
+      $value = json_encode($oldValues);
+    } elseif ($column === "ri_globaldecision") {
+      $value = filter_var($value, FILTER_VALIDATE_BOOL);
+    }
+
+    $sql = "UPDATE report_info SET $column = $2 WHERE upload_fk = $1;";
+    $stmt = __METHOD__ . "updateReportInfo" . $column;
+    $this->dbManager->getSingleRow($sql, [$uploadId, $value], $stmt);
+    return true;
+  }
+
   /* @param int $uploadId
-   * @return ri_globaldecision
+   * @return int
    */
   public function getGlobalDecisionSettingsFromInfo($uploadId, $setGlobal=null)
   {
@@ -763,7 +860,7 @@ ORDER BY lft asc
   /**
    * @param int $uploadId
    * @param int $reusedUploadId
-   * @return bolean
+   * @return bool
    */
   public function insertReportConfReuse($uploadId, $reusedUploadId)
   {

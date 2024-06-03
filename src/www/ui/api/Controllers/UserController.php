@@ -12,11 +12,22 @@
 
 namespace Fossology\UI\Api\Controllers;
 
+use Fossology\Lib\Exceptions\DuplicateTokenKeyException;
+use Fossology\Lib\Exceptions\DuplicateTokenNameException;
+use Fossology\UI\Api\Exceptions\HttpBadRequestException;
+use Fossology\UI\Api\Exceptions\HttpConflictException;
+use Fossology\UI\Api\Exceptions\HttpErrorException;
+use Fossology\UI\Api\Exceptions\HttpInternalServerErrorException;
+use Fossology\UI\Api\Exceptions\HttpNotFoundException;
+use Fossology\UI\Api\Exceptions\HttpTooManyRequestException;
 use Fossology\UI\Api\Helper\ResponseHelper;
-use Psr\Http\Message\ServerRequestInterface;
+use Fossology\UI\Api\Helper\RestHelper;
+use Fossology\UI\Api\Helper\UserHelper;
+use Fossology\UI\Api\Models\ApiVersion;
 use Fossology\UI\Api\Models\Info;
 use Fossology\UI\Api\Models\InfoType;
-use Fossology\UI\Api\Helper\UserHelper;
+use Fossology\UI\Api\Models\TokenRequest;
+use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * @class UserController
@@ -31,6 +42,7 @@ class UserController extends RestController
    * @param ResponseHelper $response
    * @param array $args
    * @return ResponseHelper
+   * @throws HttpNotFoundException
    */
   public function getUsers($request, $response, $args)
   {
@@ -38,8 +50,7 @@ class UserController extends RestController
     if (isset($args['id'])) {
       $id = intval($args['id']);
       if (! $this->dbHelper->doesIdExist("users", "user_pk", $id)) {
-        $returnVal = new Info(404, "UserId doesn't exist", InfoType::ERROR);
-        return $response->withJson($returnVal->getArray(), $returnVal->getCode());
+        throw new HttpNotFoundException("UserId doesn't exist");
       }
     }
     $users = $this->dbHelper->getUsers($id);
@@ -61,6 +72,7 @@ class UserController extends RestController
    * @param ResponseHelper $response
    * @param array $args
    * @return ResponseHelper
+   * @throws HttpInternalServerErrorException
    */
   public function addUser($request, $response, $args)
   {
@@ -77,7 +89,7 @@ class UserController extends RestController
     $symfonyRequest->request->set('enote', $userDetails['emailNotification'] ? 'y' : 'n');
     $symfonyRequest->request->set('email', $userDetails['email']);
     $symfonyRequest->request->set('public', $userDetails['defaultVisibility']);
-    $symfonyRequest->request->set('default_bucketpool_fk', isset($userDetails['defaultBucketpool']) ? $userDetails['defaultBucketpool'] : 2);
+    $symfonyRequest->request->set('default_bucketpool_fk', $userDetails['defaultBucketpool'] ?? 2);
 
     $agents = array();
     if (isset($userDetails['agents'])) {
@@ -108,10 +120,10 @@ class UserController extends RestController
     $ErrMsg = $userAddObj->add($symfonyRequest);
 
     if ($ErrMsg != '') {
-      $returnVal = new Info(500, $ErrMsg, InfoType::ERROR);
-    } else {
-      $returnVal = new Info(201, "User created successfully", InfoType::INFO);
+      throw new HttpInternalServerErrorException($ErrMsg);
     }
+
+    $returnVal = new Info(201, "User created successfully", InfoType::INFO);
     return $response->withJson($returnVal->getArray(), $returnVal->getCode());
   }
 
@@ -122,17 +134,17 @@ class UserController extends RestController
    * @param ResponseHelper $response
    * @param array $args
    * @return ResponseHelper
+   * @throws HttpNotFoundException
    */
   public function deleteUser($request, $response, $args)
   {
     $id = intval($args['id']);
-    $returnVal = null;
-    if ($this->dbHelper->doesIdExist("users","user_pk", $id)) {
-      $this->dbHelper->deleteUser($id);
-      $returnVal = new Info(202, "User will be deleted", InfoType::INFO);
-    } else {
-      $returnVal = new Info(404, "UserId doesn't exist", InfoType::ERROR);
+    if (!$this->dbHelper->doesIdExist("users","user_pk", $id)) {
+      throw new HttpNotFoundException("UserId doesn't exist");
     }
+
+    $this->dbHelper->deleteUser($id);
+    $returnVal = new Info(202, "User will be deleted", InfoType::INFO);
     return $response->withJson($returnVal->getArray(), $returnVal->getCode());
   }
 
@@ -160,18 +172,17 @@ class UserController extends RestController
    * @param ResponseHelper $response
    * @param array $args
    * @return ResponseHelper
+   * @throws HttpNotFoundException
    */
   public function updateUser($request, $response, $args)
   {
     $id = intval($args['id']);
-    $returnVal = null;
     if ($this->dbHelper->doesIdExist("users","user_pk", $id)) {
-      $reqBody = $this->getParsedBody($request);
-      $userHelper = new UserHelper($id);
-      $returnVal = $userHelper->modifyUserDetails($reqBody);
-    } else {
-      $returnVal = new Info(404, "UserId doesn't exist!", InfoType::ERROR);
+      throw new HttpNotFoundException("UserId doesn't exist");
     }
+    $reqBody = $this->getParsedBody($request);
+    $userHelper = new UserHelper($id);
+    $returnVal = $userHelper->modifyUserDetails($reqBody);
     return $response->withJson($returnVal->getArray(), $returnVal->getCode());
   }
 
@@ -182,43 +193,42 @@ class UserController extends RestController
    * @param ResponseHelper $response
    * @param array $args
    * @return ResponseHelper
+   * @throws HttpErrorException
    */
   public function createRestApiToken($request, $response, $args)
   {
-    $symfonyRequest = new \Symfony\Component\HttpFoundation\Request();
     $reqBody = $this->getParsedBody($request);
-    $paramsReq = [
-      "token_name",
-      "token_scope",
-      "token_expire"
-    ];
-    $returnVal = null;
-    if (array_diff_key(array_flip($paramsReq), $reqBody)) {
-      $returnVal = new Info(400,
-      "Following parameters are required in the request body: " .
-      join(",", $paramsReq), InfoType::ERROR);
-      return $response->withJson($returnVal->getArray(), $returnVal->getCode());
-    } else {
-      $symfonyRequest = new \Symfony\Component\HttpFoundation\Request();
+    $tokenRequest = TokenRequest::fromArray($reqBody,
+      ApiVersion::getVersion($request));
+    $symfonyRequest = new \Symfony\Component\HttpFoundation\Request();
 
-      // translating values for symfony request
-      $symfonyRequest->request->set('pat_name', $reqBody['token_name']);
-      $symfonyRequest->request->set('pat_expiry', $reqBody['token_expire']);
-      $symfonyRequest->request->set('pat_scope', $reqBody['token_scope'] == "write" ? "w" : "r");
+    // translating values for symfony request
+    $symfonyRequest->request->set('pat_name', $tokenRequest->getTokenName());
+    $symfonyRequest->request->set('pat_expiry', $tokenRequest->getTokenExpire());
+    $symfonyRequest->request->set('pat_scope', $tokenRequest->getTokenScope());
 
-      // initialising the user_edit plugin
-      global $container;
-      $restHelper = $container->get('helper.restHelper');
-      $userEditObj = $restHelper->getPlugin('user_edit');
+    // initialising the user_edit plugin
+    global $container;
+    /** @var RestHelper $restHelper */
+    $restHelper = $container->get('helper.restHelper');
+    /** @var \UserEditPage $userEditObj */
+    $userEditObj = $restHelper->getPlugin('user_edit');
 
-      // creating the REST token
+    // creating the REST token
+    try {
       $token = $userEditObj->generateNewToken($symfonyRequest);
-
-      $returnVal = new Info(201, "Token created successfully", InfoType::INFO);
-      $res = $returnVal->getArray();
-      $res['token'] = $token;
-      return $response->withJson($res, $returnVal->getCode());
+    } catch (DuplicateTokenKeyException $e) {
+      throw new HttpTooManyRequestException("Please try again later.", $e);
+    } catch (DuplicateTokenNameException $e) {
+      throw new HttpConflictException($e->getMessage(), $e);
+    } catch (\UnexpectedValueException $e) {
+      throw new HttpBadRequestException($e->getMessage(), $e);
     }
+
+    $returnVal = new Info(201, "Token created successfully", InfoType::INFO);
+    $res = $returnVal->getArray();
+    $res['token'] = $token;
+    return $response->withJson($res, $returnVal->getCode());
   }
 
   /**
@@ -228,34 +238,33 @@ class UserController extends RestController
    * @param ResponseHelper $response
    * @param array $args
    * @return ResponseHelper
+   * @throws HttpBadRequestException
    */
   public function getTokens($request, $response, $args)
   {
     $tokenType = $args['type'];
-    if ($tokenType == "active" || $tokenType == "expired") {
-      // initialising the user_edit plugin
-      global $container;
-      $restHelper = $container->get('helper.restHelper');
-      $userEditObj = $restHelper->getPlugin('user_edit');
-
-      // getting the list of tokens based on the type of token requested
-      $tokens = $tokenType == "active" ? $userEditObj->getListOfActiveTokens() : $userEditObj->getListOfExpiredTokens();
-      $manageTokenObj = $restHelper->getPlugin('manage-token');
-
-      $finalTokens = array();
-      foreach ($tokens as $token) {
-        list($tokenPk) = explode(".", $token['id']);
-        $tokenVal = $manageTokenObj->revealToken($tokenPk);
-        $finalTokens[] = array_merge($token, ['token' => $tokenVal['token']]);
-      }
-
-      $returnVal = new Info(200, "Success", InfoType::INFO);
-      $res = $returnVal->getArray();
-      $res[$tokenType . '_tokens'] = $finalTokens;
-      return $response->withJson($res, $returnVal->getCode());
-    } else {
-      $returnVal = new Info(400, "Invalid request!", InfoType::ERROR);
-      return $response->withJson($returnVal->getArray(), $returnVal->getCode());
+    if ($tokenType != "active" && $tokenType != "expired") {
+      throw new HttpBadRequestException("Invalid request!");
     }
+    // initialising the user_edit plugin
+    global $container;
+    $restHelper = $container->get('helper.restHelper');
+    $userEditObj = $restHelper->getPlugin('user_edit');
+
+    // getting the list of tokens based on the type of token requested
+    $tokens = $tokenType == "active" ? $userEditObj->getListOfActiveTokens() : $userEditObj->getListOfExpiredTokens();
+    $manageTokenObj = $restHelper->getPlugin('manage-token');
+
+    $finalTokens = array();
+    foreach ($tokens as $token) {
+      list($tokenPk) = explode(".", $token['id']);
+      $tokenVal = $manageTokenObj->revealToken($tokenPk);
+      $finalTokens[] = array_merge($token, ['token' => $tokenVal['token']]);
+    }
+
+    $returnVal = new Info(200, "Success", InfoType::INFO);
+    $res = $returnVal->getArray();
+    $res[$tokenType . '_tokens'] = $finalTokens;
+    return $response->withJson($res, $returnVal->getCode());
   }
 }

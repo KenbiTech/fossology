@@ -17,29 +17,32 @@ namespace Fossology\UI\Api;
 $GLOBALS['apiCall'] = true;
 
 // setup autoloading
-require_once dirname(dirname(dirname(__DIR__))) . "/vendor/autoload.php";
-require_once dirname(dirname(dirname(dirname(__FILE__)))) .
-  "/lib/php/bootstrap.php";
+require_once dirname(__DIR__, 3) . "/vendor/autoload.php";
+require_once dirname(__FILE__, 4) . "/lib/php/bootstrap.php";
 
 use Fossology\Lib\Util\TimingLogger;
 use Fossology\UI\Api\Controllers\AuthController;
 use Fossology\UI\Api\Controllers\BadRequestController;
+use Fossology\UI\Api\Controllers\ConfController;
+use Fossology\UI\Api\Controllers\CopyrightController;
+use Fossology\UI\Api\Controllers\CustomiseController;
+use Fossology\UI\Api\Controllers\FileInfoController;
 use Fossology\UI\Api\Controllers\FileSearchController;
 use Fossology\UI\Api\Controllers\FolderController;
 use Fossology\UI\Api\Controllers\GroupController;
 use Fossology\UI\Api\Controllers\InfoController;
-use Fossology\UI\Api\Controllers\FileInfoController;
 use Fossology\UI\Api\Controllers\JobController;
-use Fossology\UI\Api\Controllers\CopyrightController;
 use Fossology\UI\Api\Controllers\LicenseController;
 use Fossology\UI\Api\Controllers\MaintenanceController;
+use Fossology\UI\Api\Controllers\ObligationController;
+use Fossology\UI\Api\Controllers\OverviewController;
 use Fossology\UI\Api\Controllers\ReportController;
 use Fossology\UI\Api\Controllers\SearchController;
-use Fossology\UI\Api\Controllers\ConfController;
 use Fossology\UI\Api\Controllers\UploadController;
 use Fossology\UI\Api\Controllers\UploadTreeController;
 use Fossology\UI\Api\Controllers\UserController;
-use Fossology\UI\Api\Controllers\CustomiseController;
+use Fossology\UI\Api\Exceptions\HttpErrorException;
+use Fossology\UI\Api\Helper\CorsHelper;
 use Fossology\UI\Api\Helper\ResponseFactoryHelper;
 use Fossology\UI\Api\Helper\ResponseHelper;
 use Fossology\UI\Api\Middlewares\FossologyInitMiddleware;
@@ -48,6 +51,7 @@ use Fossology\UI\Api\Models\ApiVersion;
 use Fossology\UI\Api\Models\Info;
 use Fossology\UI\Api\Models\InfoType;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 use Psr\Log\LoggerInterface;
 use Slim\Exception\HttpMethodNotAllowedException;
 use Slim\Exception\HttpNotFoundException;
@@ -88,7 +92,7 @@ $timingLogger->logWithStartTime("bootstrap", $startTime);
 
 /* Load UI templates */
 $loader = $container->get('twig.loader');
-$loader->addPath(dirname(dirname(__FILE__)).'/template');
+$loader->addPath(dirname(__FILE__, 2) .'/template');
 
 /* Initialize global system configuration variables $SysConfig[] */
 $timingLogger->tic();
@@ -112,12 +116,12 @@ $app = AppFactory::create();
 $app->setBasePath($BASE_PATH);
 
 // Custom middleware to set the API version as a request attribute
-$apiVersionMiddleware = function (Request $request, $handler) use ($apiVersion) {
-  $request = $request->withAttribute('apiVersion', $apiVersion);
+$apiVersionMiddleware = function (Request $request, RequestHandler $handler) use ($apiVersion) {
+  $request = $request->withAttribute(ApiVersion::ATTRIBUTE_NAME, $apiVersion);
   return $handler->handle($request);
 };
 
-/*./
+/*
  * To check the order of middlewares, refer
  * https://www.slimframework.com/docs/v4/concepts/middleware.html
  *
@@ -125,10 +129,11 @@ $apiVersionMiddleware = function (Request $request, $handler) use ($apiVersion) 
  *
  * 1. The call enters from Rest Auth and initialize session variables.
  * 2. It then goes to FOSSology Init and initialize all plugins
- * 3. The normal flow continues.
- * 4. The call now enters FOSSology Init again and plugins are unloaded.
- * 5. The call then enters Rest Auth and leaves as is.
- * 6. Added ApiVersion middleware to set 'apiVersion' attribute in request.
+ * 3. Added ApiVersion middleware to set 'apiVersion' attribute in request.
+ * 4. The normal flow continues.
+ * 5. The call enters ApiVersion middleware and leaves as is.
+ * 6. The call now enters FOSSology Init again and plugins are unloaded.
+ * 7. The call then enters Rest Auth and leaves as is.
  */
 if ($dbConnected) {
   // Middleware for plugin initialization
@@ -173,37 +178,67 @@ $app->group('/uploads',
     $app->post('', UploadController::class . ':postUpload');
     $app->put('/{id:\\d+}/permissions', UploadController::class . ':setUploadPermissions');
     $app->get('/{id:\\d+}/perm-groups', UploadController::class . ':getGroupsWithPermissions');
+    $app->get('/{id:\\d+}/groups/permission', UploadController::class . ':getGroupsWithPermissions');
     $app->get('/{id:\\d+}/summary', UploadController::class . ':getUploadSummary');
+    $app->get('/{id:\\d+}/agents', UploadController::class . ':getAllAgents');
+    $app->get('/{id:\\d+}/agents/revision', UploadController::class . ':getAgentsRevision');
     $app->get('/{id:\\d+}/licenses', UploadController::class . ':getUploadLicenses');
     $app->get('/{id:\\d+}/licenses/histogram', UploadController::class . ':getLicensesHistogram');
-    $app->get('/{id:\\d+}/agents', UploadController::class . ':getAllAgents');
     $app->get('/{id:\\d+}/licenses/edited', UploadController::class . ':getEditedLicenses');
     $app->get('/{id:\\d+}/licenses/reuse', UploadController::class . ':getReuseReportSummary');
     $app->get('/{id:\\d+}/licenses/scanned', UploadController::class . ':getScannedLicenses');
-    $app->get('/{id:\\d+}/agents/revision', UploadController::class . ':getAgentsRevision');
-    $app->put('/{id:\\d+}/item/{itemId:\\d+}/licenses', UploadTreeController::class . ':handleAddEditAndDeleteLicenseDecision');
-    $app->get('/{id:\\d+}/download', UploadController::class . ':uploadDownload');
-    $app->get('/{id:\\d+}/copyrights', UploadController::class . ':getUploadCopyrights');
-    $app->get('/{id:\\d+}/clearing-progress', UploadController::class . ':getClearingProgressInfo');
     $app->get('/{id:\\d+}/licenses/main', UploadController::class . ':getMainLicenses');
     $app->post('/{id:\\d+}/licenses/main', UploadController::class . ':setMainLicense');
+    $app->get('/{id:\\d+}/download', UploadController::class . ':uploadDownload');
+    $app->get('/{id:\\d+}/clearing-progress', UploadController::class . ':getClearingProgressInfo');
     $app->delete('/{id:\\d+}/licenses/{shortName:[\\w\\- \\.]+}/main', UploadController::class . ':removeMainLicense');
+    $app->get('/{id:\\d+}/topitem', UploadController::class . ':getTopItem');
+    $app->put('/{id:\\d+}/item/{itemId:\\d+}/licenses', UploadTreeController::class . ':handleAddEditAndDeleteLicenseDecision');
     $app->get('/{id:\\d+}/item/{itemId:\\d+}/view', UploadTreeController::class. ':viewLicenseFile');
     $app->get('/{id:\\d+}/item/{itemId:\\d+}/prev-next', UploadTreeController::class . ':getNextPreviousItem');
     $app->get('/{id:\\d+}/item/{itemId:\\d+}/licenses', UploadTreeController::class . ':getLicenseDecisions');
-    $app->get('/{id:\\d+}/item/{itemId:\\d+}/copyrights', CopyrightController::class . ':getFileCopyrights');
-    $app->delete('/{id:\\d+}/item/{itemId:\\d+}/copyrights/{hash:.*}', CopyrightController::class . ':deleteFileCopyrights');
-    $app->put('/{id:\\d+}/item/{itemId:\\d+}/copyrights/{hash:.*}', CopyrightController::class . ':updateFileCopyrights');
-    $app->put('/{id:\\d+}/item/{itemId}/clearing-decision', UploadTreeController::class . ':setClearingDecision');
+    $app->put('/{id:\\d+}/item/{itemId:\\d+}/clearing-decision', UploadTreeController::class . ':setClearingDecision');
     $app->get('/{id:\\d+}/item/{itemId:\\d+}/bulk-history', UploadTreeController::class . ':getBulkHistory');
     $app->get('/{id:\\d+}/item/{itemId:\\d+}/clearing-history', UploadTreeController::class . ':getClearingHistory');
     $app->get('/{id:\\d+}/item/{itemId:\\d+}/highlight', UploadTreeController::class . ':getHighlightEntries');
-    $app->patch('/{id:\\d+}/item/{itemId:\\d+}/copyrights/{hash:.*}', CopyrightController::class . ':restoreFileCopyrights');
     $app->get('/{id:\\d+}/item/{itemId:\\d+}/totalcopyrights', CopyrightController::class . ':getTotalFileCopyrights');
     $app->get('/{id:\\d+}/item/{itemId:\\d+}/tree/view', UploadTreeController::class . ':getTreeView');
     $app->get('/{id:\\d+}/item/{itemId:\\d+}/info', FileInfoController::class . ':getItemInfo');
     $app->post('/{id:\\d+}/item/{itemId:\\d+}/bulk-scan', UploadTreeController::class . ':scheduleBulkScan');
     $app->get('/{id:\\d+}/conf', ConfController::class . ':getConfInfo');
+    $app->put('/{id:\\d+}/conf', ConfController::class . ':updateConfData');
+    $app->get('/{id:\\d+}/copyrights', UploadController::class . ':getUploadCopyrights');
+    ////////////////////////// BULK FOR CX OPERATIONS /////////////////////
+    $app->group('/{id:\\d+}/item/{itemId:\\d+}', function (\Slim\Routing\RouteCollectorProxy $app) {
+      $app->get('/copyrights', CopyrightController::class . ':getFileCopyrights');
+      $app->delete('/copyrights/{hash:.*}', CopyrightController::class . ':deleteFileCopyright');
+      $app->patch('/copyrights/{hash:.*}', CopyrightController::class . ':restoreFileCopyright');
+      $app->put('/copyrights/{hash:.*}', CopyrightController::class . ':updateFileCopyright');
+      $app->get('/emails', CopyrightController::class . ':getFileEmail');
+      $app->delete('/emails/{hash:.*}', CopyrightController::class . ':deleteFileEmail');
+      $app->patch('/emails/{hash:.*}', CopyrightController::class . ':restoreFileEmail');
+      $app->put('/emails/{hash:.*}', CopyrightController::class . ':updateFileEmail');
+      $app->get('/urls', CopyrightController::class . ':getFileUrl');
+      $app->delete('/urls/{hash:.*}', CopyrightController::class . ':deleteFileUrl');
+      $app->patch('/urls/{hash:.*}', CopyrightController::class . ':restoreFileUrl');
+      $app->put('/urls/{hash:.*}', CopyrightController::class . ':updateFileUrl');
+      $app->get('/authors', CopyrightController::class . ':getFileAuthor');
+      $app->delete('/authors/{hash:.*}', CopyrightController::class . ':deleteFileAuthor');
+      $app->patch('/authors/{hash:.*}', CopyrightController::class . ':restoreFileAuthor');
+      $app->put('/authors/{hash:.*}', CopyrightController::class . ':updateFileAuthor');
+      $app->get('/eccs', CopyrightController::class . ':getFileEcc');
+      $app->delete('/eccs/{hash:.*}', CopyrightController::class . ':deleteFileEcc');
+      $app->patch('/eccs/{hash:.*}', CopyrightController::class . ':restoreFileEcc');
+      $app->put('/eccs/{hash:.*}', CopyrightController::class . ':updateFileEcc');
+      $app->get('/keywords', CopyrightController::class . ':getFileKeyword');
+      $app->delete('/keywords/{hash:.*}', CopyrightController::class . ':deleteFileKeyword');
+      $app->patch('/keywords/{hash:.*}', CopyrightController::class . ':restoreFileKeyword');
+      $app->put('/keywords/{hash:.*}', CopyrightController::class . ':updateFileKeyword');
+      $app->get('/ipras', CopyrightController::class . ':getFileIpra');
+      $app->delete('/ipras/{hash:.*}', CopyrightController::class . ':deleteFileIpra');
+      $app->patch('/ipras/{hash:.*}', CopyrightController::class . ':restoreFileIpra');
+      $app->put('/ipras/{hash:.*}', CopyrightController::class . ':updateFileIpra');
+    });
     $app->any('/{params:.*}', BadRequestController::class);
   });
 
@@ -218,6 +253,18 @@ $app->group('/users',
     $app->get('/self', UserController::class . ':getCurrentUser');
     $app->post('/tokens', UserController::class . ':createRestApiToken');
     $app->get('/tokens/{type:\\w+}', UserController::class . ':getTokens');
+    $app->any('/{params:.*}', BadRequestController::class);
+  });
+
+////////////////////////////OBLIGATIONS/////////////////////
+$app->group('/obligations',
+  function (\Slim\Routing\RouteCollectorProxy $app) {
+    $app->get('/list', ObligationController::class . ':obligationsList');
+    $app->get('/{id:\\d+}', ObligationController::class . ':obligationsDetails');
+    $app->get('', ObligationController::class . ':obligationsAllDetails');
+    $app->delete('/{id:\\d+}', ObligationController::class . ':deleteObligation');
+    $app->get('/export-csv', ObligationController::class . ':exportObligationsToCSV');
+    $app->post('/import-csv', ObligationController::class . ':importObligationsFromCSV');
     $app->any('/{params:.*}', BadRequestController::class);
   });
 
@@ -241,8 +288,11 @@ $app->group('/jobs',
     $app->get('[/{id:\\d+}]', JobController::class . ':getJobs');
     $app->get('/all', JobController::class . ':getAllJobs');
     $app->get('/dashboard/statistics', JobController::class . ':getJobStatistics');
+    $app->get('/scheduler/operation/{operationName:[\\w\\- \\.]+}', JobController::class . ':getSchedulerJobOptionsByOperation');
+    $app->post('/scheduler/operation/run', JobController::class . ':handleRunSchedulerOption');
     $app->post('', JobController::class . ':createJob');
     $app->get('/history', JobController::class . ':getJobsHistory');
+    $app->get('/dashboard', JobController::class . ':getAllServerJobsStatus');
     $app->delete('/{id:\\d+}/{queue:\\d+}', JobController::class . ':deleteJob');
     $app->any('/{params:.*}', BadRequestController::class);
   });
@@ -269,6 +319,9 @@ $app->group('/folders',
     $app->delete('/{id:\\d+}', FolderController::class . ':deleteFolder');
     $app->patch('/{id:\\d+}', FolderController::class . ':editFolder');
     $app->put('/{id:\\d+}', FolderController::class . ':copyFolder');
+    $app->get('/{id:\\d+}/contents/unlinkable', FolderController::class . ':getUnlinkableFolderContents');
+    $app->put('/contents/{contentId:\\d+}/unlink', FolderController::class . ':unlinkFolder');
+    $app->get('/{id:\\d+}/contents', FolderController::class . ':getAllFolderContents');
     $app->any('/{params:.*}', BadRequestController::class);
   });
 
@@ -285,13 +338,12 @@ $app->group('/report',
 $app->group('/customise',
   function (\Slim\Routing\RouteCollectorProxy $app) {
     $app->get('', CustomiseController::class . ':getCustomiseData');
+    $app->put('', CustomiseController::class . ':updateCustomiseData');
+    $app->get('/banner', CustomiseController::class . ':getBannerMessage');
+    $app->any('/{params:.*}', BadRequestController::class);
   });
 
 ////////////////////////////INFO/////////////////////
-$app->group('/version',
-  function (\Slim\Routing\RouteCollectorProxy $app) {
-    $app->get('', InfoController::class . ':getInfo');
-  });
 $app->group('/info',
   function (\Slim\Routing\RouteCollectorProxy $app) {
     $app->get('', InfoController::class . ':getInfo');
@@ -317,16 +369,31 @@ $app->group('/license',
   function (\Slim\Routing\RouteCollectorProxy $app) {
     $app->get('', LicenseController::class . ':getAllLicenses');
     $app->post('/import-csv', LicenseController::class . ':handleImportLicense');
+    $app->get('/export-csv', LicenseController::class . ':exportAdminLicenseToCSV');
     $app->post('', LicenseController::class . ':createLicense');
+    $app->put('/verify/{shortname:.+}', LicenseController::class . ':verifyLicense');
+    $app->put('/merge/{shortname:.+}', LicenseController::class . ':mergeLicense');
     $app->get('/admincandidates', LicenseController::class . ':getCandidates');
     $app->get('/adminacknowledgements', LicenseController::class . ':getAllAdminAcknowledgements');
     $app->get('/stdcomments', LicenseController::class . ':getAllLicenseStandardComments');
     $app->put('/stdcomments', LicenseController::class . ':handleLicenseStandardComment');
+    $app->post('/suggest', LicenseController::class . ':getSuggestedLicense');
     $app->get('/{shortname:.+}', LicenseController::class . ':getLicense');
     $app->patch('/{shortname:.+}', LicenseController::class . ':updateLicense');
     $app->delete('/admincandidates/{id:\\d+}',
       LicenseController::class . ':deleteAdminLicenseCandidate');
     $app->put('/adminacknowledgements', LicenseController::class . ':handleAdminLicenseAcknowledgement');
+    $app->any('/{params:.*}', BadRequestController::class);
+  });
+
+////////////////////////////OVERVIEW/////////////////////
+$app->group('/overview',
+  function (\Slim\Routing\RouteCollectorProxy $app) {
+    $app->get('/database/contents', OverviewController::class . ':getDatabaseContents');
+    $app->get('/disk/usage', OverviewController::class . ':getDiskSpaceUsage');
+    $app->get('/info/php', OverviewController::class . ':getPhpInfo');
+    $app->get('/database/metrics', OverviewController::class . ':getDatabaseMetrics');
+    $app->get('/queries/active', OverviewController::class . ':getActiveQueries');
     $app->any('/{params:.*}', BadRequestController::class);
   });
 
@@ -361,31 +428,55 @@ $customErrorHandler = function (
       json_encode($payload, JSON_UNESCAPED_UNICODE)
   );
 
-  return $response;
+  plugin_unload();
+  return CorsHelper::addCorsHeaders($response);
 };
 
 $errorMiddleware = $app->addErrorMiddleware(false, true, true,
   $container->get("logger"));
-$errorMiddleware->setDefaultErrorHandler($customErrorHandler);
 
 // Catch all routes
 $errorMiddleware->setErrorHandler(
   HttpNotFoundException::class,
   function (ServerRequestInterface $request, Throwable $exception, bool $displayErrorDetails) {
-      $response = new ResponseHelper();
-      $error = new Info(404, "Resource not found", InfoType::ERROR);
-      return $response->withJson($error->getArray(), $error->getCode());
+    $response = new ResponseHelper();
+    $error = new Info(404, "Resource not found", InfoType::ERROR);
+    $response = $response->withJson($error->getArray(), $error->getCode());
+    plugin_unload();
+    return CorsHelper::addCorsHeaders($response);
   });
 
 // Set the Not Allowed Handler
 $errorMiddleware->setErrorHandler(
   HttpMethodNotAllowedException::class,
   function (ServerRequestInterface $request, Throwable $exception, bool $displayErrorDetails) {
-      $response = new Response();
-      $response->getBody()->write('405 NOT ALLOWED');
+    $response = new Response();
+    $response->getBody()->write('405 NOT ALLOWED');
 
-      return $response->withStatus(405);
+    $response = $response->withStatus(405);
+    plugin_unload();
+    return CorsHelper::addCorsHeaders($response);
   });
+
+// Set custom error handler
+$errorMiddleware->setErrorHandler(
+  HttpErrorException::class,
+  function (ServerRequestInterface $request, HttpErrorException $exception, bool $displayErrorDetails) {
+    $response = new ResponseHelper();
+    $error = new Info($exception->getCode(), $exception->getMessage(),
+      InfoType::ERROR);
+    $response = $response->withJson($error->getArray(), $error->getCode());
+    if (!empty($exception->getHeaders())) {
+      foreach ($exception->getHeaders() as $key => $value) {
+        $response = $response->withHeader($key, $value);
+      }
+    }
+    plugin_unload();
+    return CorsHelper::addCorsHeaders($response);
+  }, true
+);
+
+$errorMiddleware->setDefaultErrorHandler($customErrorHandler);
 
 $app->run();
 

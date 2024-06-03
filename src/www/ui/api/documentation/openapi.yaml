@@ -3,11 +3,11 @@
 
 # SPDX-License-Identifier: GPL-2.0-only
 
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: FOSSology API
   description: Automate your fossology instance using REST API
-  version: 1.5.5
+  version: 1.6.1
   contact:
     email: fossology@fossology.org
   license:
@@ -53,6 +53,112 @@ tags:
     description: License and obligation management
   - name: Maintenance
     description: Maintenance operations
+  - name: Overview
+    description: Overview of FOSSology operations
+
+x-reuse:
+  - &cxGetParams
+    - name: id
+      required: true
+      description: Upload Id
+      in: path
+      schema:
+        type: integer
+    - name: itemId
+      required: true
+      description: UploadTree ID (available via /uploads/{id}/topitem & /uploads/{id}/item/{itemId}/tree/view)
+      in: path
+      schema:
+        type: integer
+    - name: status
+      required: true
+      in: query
+      description: Status of the CX
+      schema:
+        type: string
+        enum:
+          - active
+          - inactive
+    - name: limit
+      description: Limits of responses per request
+      required: false
+      in: header
+      schema:
+        type: integer
+        default: 100
+        minimum: 1
+        maximum: 1000
+    - name: page
+      description: Page number for responses
+      required: false
+      in: header
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+  - &cxUpdateParams
+    - name: id
+      required: true
+      description: Upload ID
+      in: path
+      schema:
+        type: integer
+    - name: itemId
+      required: true
+      description: Upload tree ID
+      in: path
+      schema:
+        type: integer
+    - name: hash
+      required: true
+      description: CX hash
+      in: path
+      schema:
+        type: string
+  - &cxGetResponses
+    '200':
+      description: OK
+      headers:
+        X-Total-Pages:
+          description: Total number of pages which can be generated based on limit
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/GetFileCopyrights'
+    '400':
+      description: "Bad Request. 'upload' is a required query param"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Info'
+    default:
+      $ref: '#/components/responses/defaultResponse'
+  - &cxUpdateResponses
+    '200':
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Info'
+    '403':
+      description: Access denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Info'
+    default:
+      $ref: '#/components/responses/defaultResponse'
+  - &cxUpdateBody
+    description: Updated text
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '#/components/schemas/SetCopyrightInfo'
 
 paths:
   /tokens:
@@ -102,26 +208,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Info'
-        default:
-          $ref: '#/components/responses/defaultResponse'
-
-  /version:
-    get:
-      operationId: getVersion
-      deprecated: true
-      tags:
-        - info
-      security: []
-      summary: Current API information
-      description: >
-        Deprecated in favour of /info endpoint.
-      responses:
-        '200':
-          description: The version and security information
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiInfo'
         default:
           $ref: '#/components/responses/defaultResponse'
 
@@ -235,6 +321,166 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthInfo'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /obligations/list:
+    get:
+      operationId: getObligationsList
+      tags:
+        - Admin
+      summary: Get the list of obligations
+      description: >
+        Get the list of obligations in the server.
+      responses:
+        '200':
+          description: The API information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObligationsList'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /obligations/{id}:
+    parameters:
+      - name: id
+        required: true
+        description: Id of the obligation
+        in: path
+        schema:
+          type: integer
+    get:
+      operationId: getObligationsData
+      tags:
+        - Admin
+      summary: Get details of a particular obligation
+      description: >
+        Get the details of a particular obligation from the server.
+      responses:
+        '200':
+          description: The API information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObligationExtended'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+    delete:
+      operationId: deleteObligationsData
+      tags:
+        - Admin
+      summary: Delete a particular obligation
+      description: >
+        Delete a particular obligation from the server.
+      responses:
+        '200':
+          description: Obligation deleted.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+  /obligations/import-csv:
+    post:
+      operationId: importObligationCsv
+      tags:
+        - License
+      summary: Import an obligation csv file
+      description: >
+        Import an obligation csv file
+      requestBody:
+        description: Information about delimiters, inclosure and csv file.
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                enclosure:
+                  type: string
+                  description: Enclosure for string in CSV
+                  default: '"'
+                delimiter:
+                  type: string
+                  description: Delimiters for fields in CSV
+                  default: ','
+                file_input:
+                  type: string
+                  format: binary
+                  description: CSV to be imported
+              required:
+                - file_input
+      responses:
+        '400':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '200':
+          description: Successfully imported
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /obligations/export-csv:
+    get:
+      operationId: exportLicenseObligations
+      parameters:
+        - name: id
+          description: Obligation id to export, 0 for all
+          in: query
+          required: false
+          schema:
+            type: integer
+      tags:
+        - License
+      summary: Export a csv obligation list
+      description: >
+        Export a csv license obligation list
+      responses:
+        '200':
+          description: Successfully exported
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: binary
+        '403':
+          description: Route is not accessible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /obligations:
+    get:
+      operationId: getAllObligationsData
+      tags:
+        - Admin
+      summary: Get details of a all obligations
+      description: >
+        Get the details of all obligations from the server.
+      responses:
+        '200':
+          description: The API information
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ObligationExtended'
+        default:
+          $ref: '#/components/responses/defaultResponse'
 
   /uploads/{id}:
     parameters:
@@ -641,7 +887,7 @@ paths:
                 $ref: '#/components/schemas/Info'
         default:
           $ref: '#/components/responses/defaultResponse'
-  /uploads/{id}/item/{itemId}/info:    
+  /uploads/{id}/item/{itemId}/info:
     parameters:
       - name: id
         required: true
@@ -1043,7 +1289,7 @@ paths:
                 $ref: '#/components/schemas/Info'
         default:
           $ref: '#/components/responses/defaultResponse'
-          
+
   /uploads/{id}/item/{itemId}/view:
     parameters:
       - name: id
@@ -1333,7 +1579,7 @@ paths:
                 $ref: '#/components/schemas/Info'
         default:
           $ref: '#/components/responses/defaultResponse'
-          
+
   /uploads/{id}/licenses/main:
     parameters:
       - name: id
@@ -1456,7 +1702,7 @@ paths:
                 $ref: '#/components/schemas/Info'
         default:
           $ref: '#/components/responses/defaultResponse'
-          
+
   /uploads/{id}/item/{itemId}/prev-next:
     parameters:
       - name: id
@@ -1551,7 +1797,7 @@ paths:
                 $ref: '#/components/schemas/Info'
         default:
           $ref: '#/components/responses/defaultResponse'
-  
+
   /uploads/{id}/clearing-progress:
     parameters:
       - name: id
@@ -1872,7 +2118,33 @@ paths:
                 $ref: '#/components/schemas/Info'
         default:
           $ref: '#/components/responses/defaultResponse'
-          
+  /uploads/{id}/topitem:
+    parameters:
+      - name: id
+        required: true
+        description: Id of the upload
+        in: path
+        schema:
+          type: integer
+    get:
+      operationId: getTopItemId
+      tags:
+        - Upload
+      summary: Get the top level item id for a given upload
+      description: >
+        Get the item id for the top level item in a given upload.
+      responses:
+        '200':
+          description: Top item id
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
   /uploads/{id}/licenses/reuse:
     parameters:
       - name: id
@@ -2347,73 +2619,249 @@ paths:
           $ref: '#/components/responses/defaultResponse'
 
   /uploads/{id}/item/{itemId}/copyrights:
-    parameters:
-      - name: id
-        required: true
-        description: Upload Id
-        in: path
-        schema:
-          type: integer
-      - name: itemId
-        required: true
-        description: UploadTree ID
-        in: path
-        schema:
-          type: integer
-      - name: status
-        required: true
-        in: query
-        description: status of the copyright
-        schema:
-          type: string
-          enum:
-              - active
-              - inactive
-      - name: limit
-        description: Limits of responses per request
-        required: false
-        in: header
-        schema:
-          type: integer
-          default: 100
-          minimum: 1
-          maximum: 1000
-      - name: page
-        description: Page number for responses
-        required: false
-        in: header
-        schema:
-          type: integer
-          default: 1
-          minimum: 1
+    parameters: *cxGetParams
     get:
       operationId: getFileCopyrights
       tags:
         - Copyrights
       summary: Get the copyrights of the mentioned upload tree ID
       description: Returns the list of copyrights associated with the file
-      responses:
-        '200':
-          description: OK
-          headers:
-            X-Total-Pages:
-              description: Total number of pages which can be generated based on limit
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/GetFileCopyrights'
-        '400':
-          description: "Bad Request. 'upload' is a required query param"
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Info'
-        default:
-          $ref: '#/components/responses/defaultResponse'
+      responses: *cxGetResponses
+
+  /uploads/{id}/item/{itemId}/copyrights/{hash}:
+    parameters: *cxUpdateParams
+    delete:
+      operationId: deleteFileCopyrights
+      tags:
+        - Copyrights
+      summary: Deletes a copyright for a file
+      description: Deletes a copyright statement for a particular file
+      responses: *cxUpdateResponses
+    patch:
+      operationId: restoreFileCopyrights
+      tags:
+        - Copyrights
+      summary: Restores a copyright for a file
+      description: Restores a copyright statement for a particular file
+      responses: *cxUpdateResponses
+    put:
+      operationId: updateFileCopyrights
+      tags:
+        - Copyrights
+      summary: Updates a copyright for a file
+      description: Updates a copyright statement for a particular file
+      requestBody: *cxUpdateBody
+      responses: *cxUpdateResponses
+
+  /uploads/{id}/item/{itemId}/emails:
+    parameters: *cxGetParams
+    get:
+      operationId: getFileEmails
+      tags:
+        - Copyrights
+      summary: Get the emails of the mentioned upload tree ID
+      description: Returns the list of emails associated with the file
+      responses: *cxGetResponses
+
+  /uploads/{id}/item/{itemId}/emails/{hash}:
+    parameters: *cxUpdateParams
+    delete:
+      operationId: deleteFileEmails
+      tags:
+        - Copyrights
+      summary: Deletes an email for a file
+      description: Deletes an email statement for a particular file
+      responses: *cxUpdateResponses
+    patch:
+      operationId: restoreFileEmail
+      tags:
+        - Copyrights
+      summary: Restores an email for a file
+      description: Restores an email statement for a particular file
+      responses: *cxUpdateResponses
+    put:
+      operationId: updateFileEmail
+      tags:
+        - Copyrights
+      summary: Updates an email for a file
+      description: Updates an email statement for a particular file
+      requestBody: *cxUpdateBody
+      responses: *cxUpdateResponses
+
+  /uploads/{id}/item/{itemId}/urls:
+    parameters: *cxGetParams
+    get:
+      operationId: getFileUrls
+      tags:
+        - Copyrights
+      summary: Get the URLs of the mentioned upload tree ID
+      description: Returns the list of URLs associated with the file
+      responses: *cxGetResponses
+
+  /uploads/{id}/item/{itemId}/urls/{hash}:
+    parameters: *cxUpdateParams
+    delete:
+      operationId: deleteFileUrl
+      tags:
+        - Copyrights
+      summary: Deletes an URL for a file
+      description: Deletes an URL statement for a particular file
+      responses: *cxUpdateResponses
+    patch:
+      operationId: restoreFileUrl
+      tags:
+        - Copyrights
+      summary: Restores an URL for a file
+      description: Restores an URL statement for a particular file
+      responses: *cxUpdateResponses
+    put:
+      operationId: updateFileUrl
+      tags:
+        - Copyrights
+      summary: Updates an URL for a file
+      description: Updates an URL statement for a particular file
+      requestBody: *cxUpdateBody
+      responses: *cxUpdateResponses
+
+  /uploads/{id}/item/{itemId}/authors:
+    parameters: *cxGetParams
+    get:
+      operationId: getFileAuthors
+      tags:
+        - Copyrights
+      summary: Get the authors of the mentioned upload tree ID
+      description: Returns the list of authors associated with the file
+      responses: *cxGetResponses
+
+  /uploads/{id}/item/{itemId}/authors/{hash}:
+    parameters: *cxUpdateParams
+    delete:
+      operationId: deleteFileAuthor
+      tags:
+        - Copyrights
+      summary: Deletes an author for a file
+      description: Deletes an author statement for a particular file
+      responses: *cxUpdateResponses
+    patch:
+      operationId: restoreFileAuthor
+      tags:
+        - Copyrights
+      summary: Restores an author for a file
+      description: Restores an author statement for a particular file
+      responses: *cxUpdateResponses
+    put:
+      operationId: updateFileAuthor
+      tags:
+        - Copyrights
+      summary: Updates an author for a file
+      description: Updates an author statement for a particular file
+      requestBody: *cxUpdateBody
+      responses: *cxUpdateResponses
+
+  /uploads/{id}/item/{itemId}/eccs:
+    parameters: *cxGetParams
+    get:
+      operationId: getFileEccs
+      tags:
+        - Copyrights
+      summary: Get the ECCs of the mentioned upload tree ID
+      description: Returns the list of ECCs associated with the file
+      responses: *cxGetResponses
+
+  /uploads/{id}/item/{itemId}/eccs/{hash}:
+    parameters: *cxUpdateParams
+    delete:
+      operationId: deleteFileEcc
+      tags:
+        - Copyrights
+      summary: Deletes an ECC for a file
+      description: Deletes an ECC statement for a particular file
+      responses: *cxUpdateResponses
+    patch:
+      operationId: restoreFileEcc
+      tags:
+        - Copyrights
+      summary: Restores an ECC for a file
+      description: Restores an ECC statement for a particular file
+      responses: *cxUpdateResponses
+    put:
+      operationId: updateFileEcc
+      tags:
+        - Copyrights
+      summary: Updates an ECC for a file
+      description: Updates an ECC statement for a particular file
+      requestBody: *cxUpdateBody
+      responses: *cxUpdateResponses
+
+  /uploads/{id}/item/{itemId}/keywords:
+    parameters: *cxGetParams
+    get:
+      operationId: getFileKeywords
+      tags:
+        - Copyrights
+      summary: Get the keywords of the mentioned upload tree ID
+      description: Returns the list of keywords associated with the file
+      responses: *cxGetResponses
+
+  /uploads/{id}/item/{itemId}/keywords/{hash}:
+    parameters: *cxUpdateParams
+    delete:
+      operationId: deleteFileKeyword
+      tags:
+        - Copyrights
+      summary: Deletes a keyword for a file
+      description: Deletes a keyword statement for a particular file
+      responses: *cxUpdateResponses
+    patch:
+      operationId: restoreFileKeyword
+      tags:
+        - Copyrights
+      summary: Restores a keyword for a file
+      description: Restores a keyword statement for a particular file
+      responses: *cxUpdateResponses
+    put:
+      operationId: updateFileKeyword
+      tags:
+        - Copyrights
+      summary: Updates a keyword for a file
+      description: Updates a keyword statement for a particular file
+      requestBody: *cxUpdateBody
+      responses: *cxUpdateResponses
+
+  /uploads/{id}/item/{itemId}/ipras:
+    parameters: *cxGetParams
+    get:
+      operationId: getFileIpras
+      tags:
+        - Copyrights
+      summary: Get the IPRAs of the mentioned upload tree ID
+      description: Returns the list of IPRAs associated with the file
+      responses: *cxGetResponses
+
+  /uploads/{id}/item/{itemId}/ipras/{hash}:
+    parameters: *cxUpdateParams
+    delete:
+      operationId: deleteFileIpra
+      tags:
+        - Copyrights
+      summary: Deletes an IPRA for a file
+      description: Deletes an IPRA statement for a particular file
+      responses: *cxUpdateResponses
+    patch:
+      operationId: restoreFileIpra
+      tags:
+        - Copyrights
+      summary: Restores an IPRA for a file
+      description: Restores an IPRA statement for a particular file
+      responses: *cxUpdateResponses
+    put:
+      operationId: updateFileIpra
+      tags:
+        - Copyrights
+      summary: Updates an IPRA for a file
+      description: Updates an IPRA statement for a particular file
+      requestBody: *cxUpdateBody
+      responses: *cxUpdateResponses
 
   /jobs:
     parameters:
@@ -2542,6 +2990,118 @@ paths:
                 $ref: '#/components/schemas/Info'
         default:
           $ref: '#/components/responses/defaultResponse'
+
+  /jobs/scheduler/operation/{operationName}:
+    parameters:
+      - name: operationName
+        required: true
+        description: Name of the operation
+        in: path
+        schema:
+          type: string
+          enum:
+            - status
+            - database
+            - reload
+            - agents
+            - verbose
+            - stop
+            - restart
+            - pause
+            - priority
+    get:
+      operationId: getSchedulerOptionsByOperation
+      tags:
+        - Job
+        - Admin
+      summary: get scheduler options by operation
+      description: Returns the scheduler options for a specific operation
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetSchedulerOption'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /jobs/scheduler/operation/run:
+    parameters:
+      - name: job
+        required: false
+        description: Name of the selected job
+        in: query
+        schema:
+          type: string
+      - name: level
+        required: false
+        description: Level of the selected verbose
+        in: query
+        schema:
+          type: string
+      - name: priority
+        required: false
+        description: Priority option selected
+        in: query
+        schema:
+          type: string
+    post:
+      operationId: handleSchedulerRun
+      tags:
+        - Job
+        - Admin
+      summary: Run the scheduler
+      description: Run the scheduler with the selected options from a specific operation
+      requestBody:
+        description: Scheduler operation
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operation:
+                  type: string
+                  description: Operation to be run by the scheduler
+                  enum:
+                    - status
+                    - database
+                    - reload
+                    - agents
+                    - verbose
+                    - stop
+                    - restart
+                    - pause
+                    - priority
+      responses:
+        '200':
+          description: Scheduler run successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
   /jobs/{id}:
     parameters:
       - name: id
@@ -2608,7 +3168,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/Info'
         default:
-            $ref: '#/components/responses/defaultResponse'
+          $ref: '#/components/responses/defaultResponse'
+
   /jobs/dashboard/statistics:
     get:
       operationId: getJobStatistics
@@ -2625,6 +3186,29 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/GetJobStatistics'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /jobs/dashboard:
+    get:
+      operationId: getAllServerJobs
+      tags:
+        - Job
+      summary: Gets all jobs server jobs with scheduler status
+      description: Returns all jobs with the scheduler status for the Admin Dashboard. This API returns a response only if the requesting user is an Admin.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllServerJobs'
         '403':
           description: Access denied
           content:
@@ -2675,102 +3259,6 @@ paths:
                 $ref: '#/components/schemas/Info'
         '500':
           description: Failed to kill job.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Info'
-        default:
-          $ref: '#/components/responses/defaultResponse'
-  /uploads/{id}/item/{itemId}/copyrights/{hash}:
-    parameters:
-      - name: id
-        required: true
-        description: upload ID
-        in: path
-        schema:
-          type: integer
-      - name: itemId
-        required: true
-        description: Upload tree ID
-        in: path
-        schema:
-          type: integer
-      - name: hash
-        required: true
-        description: copyright hash
-        in: path
-        schema:
-          type: string
-    delete:
-      operationId: deleteFileCopyrights
-      tags:
-        - Copyrights
-      summary: Deletes a copyright for a file
-      description: Deletes a copyright statement for a particular file
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Info'
-        '403':
-          description: Access denied
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Info'
-        default:
-          $ref: '#/components/responses/defaultResponse'
-    patch:
-      operationId: restoreFileCopyrights
-      tags:
-        - Copyrights
-      summary: Restores a copyright for a file
-      description: Restores a copyright statement for a particular file
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Info'
-        '403':
-          description: Access denied
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Info'
-        default:
-          $ref: '#/components/responses/defaultResponse'
-    put:
-      operationId: updateFileCopyrights
-      tags:
-        - Copyrights
-      summary: Updates a copyright for a file
-      description: Updates a copyright statement for a particular file
-      requestBody:
-        description: updateCopyright Payload
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SetCopyrightInfo'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Info'
-        '403':
-          description: Access denied
           content:
             application/json:
               schema:
@@ -2961,6 +3449,76 @@ paths:
         default:
           $ref: '#/components/responses/defaultResponse'
 
+  /folders/contents/{contentId}/unlink:
+    parameters:
+      - name: contentId
+        in: path
+        required: true
+        description: ID of the content
+        schema:
+          type: integer
+    put:
+      operationId: unlinkContent
+      tags:
+        - Folders
+      summary: Unlink a content from a folder
+      description:
+        Unlink a content from a folder
+      responses:
+        '200':
+          description: Content is unlinked from the folder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '404':
+          description: Folder content does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /folders/{id}/contents:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the folder
+        schema:
+          type: integer
+    get:
+      operationId: getAllFolderContents
+      tags:
+        - Folders
+      summary: Get all contents of a folder
+      description:
+        Get all contents of a folder by id
+      responses:
+        '200':
+          description: Contents of the given folder
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GetFolderContent'
+        '403':
+          description: Folder is not accessible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '404':
+          description: Folder does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
   /uploads/{id}/item/{ItemId}/totalcopyrights:
     parameters:
       - name: id
@@ -2982,8 +3540,8 @@ paths:
         schema:
           type: string
           enum:
-              - active
-              - inactive
+            - active
+            - inactive
     get:
       operationId: getTotalFileCopyrights
       tags:
@@ -3046,6 +3604,91 @@ paths:
                   $ref: '#/components/schemas/Customise'
         '403':
           description: The session owner is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+    put:
+      operationId: updateCustomiseData
+      tags:
+        - Admin
+      summary: Update the Admin configuration data
+      description: >
+        Updates the admin configuration data.
+      requestBody:
+        description: Key and value to update.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetCustomiseInfo'
+      responses:
+        '200':
+          description: Config data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Info'
+        '403':
+          description: The session owner is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+  /customise/banner:
+    get:
+      operationId: getBannerMessage
+      tags:
+        - info
+      summary: Get the Banner message
+      description: >
+        Returns the Banner message from the server
+      responses:
+        '200':
+          description: Banner message
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "This is a banner message"
+        default:
+          $ref: '#/components/responses/defaultResponse'
+  /folders/{id}/contents/unlinkable:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the folder
+        schema:
+          type: integer
+    get:
+      operationId: getUnlinkableContents
+      tags:
+        - Folders
+      summary: Get contents of a folder which can be unlinked
+      description:
+        Get unlinkable contents of a folder by id. These contents are copied.
+      responses:
+        '200':
+          description: Unlinkable contents of the given folder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetFolderContent'
+        '403':
+          description: Folder is not accessible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '404':
+          description: Folder does not exist
           content:
             application/json:
               schema:
@@ -3336,6 +3979,7 @@ paths:
               - readmeoss
               - unifiedreport
               - clixml
+              - cyclonedx
         - name: groupName
           description: The group name to chose while generating a report
           in: header
@@ -3546,6 +4190,37 @@ paths:
                   $ref: '#/components/schemas/ConfResponse'
         default:
           $ref: '#/components/responses/defaultResponse'
+    put:
+      operationId: updateConfData
+      tags:
+        - Upload
+      summary: Update the Conf page data
+      description: >
+        Updates the conf page data from the server
+      requestBody:
+        description: updateConfData Payload
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetConfInfo'
+      responses:
+        '200':
+          description: Config data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Info'
+        '403':
+          description: The session owner is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
   /license:
     parameters:
       - name: groupName
@@ -3697,6 +4372,37 @@ paths:
                 $ref: '#/components/schemas/Info'
         '200':
           description: Successfully imported
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+  /license/export-csv:
+    get:
+      operationId: exportLicense
+      parameters:
+        - name: id
+          description: License id to export, 0 for all
+          in: query
+          required: false
+          schema:
+            type: integer
+      tags:
+        - License
+      summary: Export a csv license
+      description: >
+        Export a csv license
+      responses:
+        '200':
+          description: Successfully exported
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '403':
+          description: Route is not accessible
           content:
             application/json:
               schema:
@@ -3981,6 +4687,329 @@ paths:
                 $ref: '#/components/schemas/Info'
         default:
           $ref: '#/components/responses/defaultResponse'
+
+  /license/verify/{shortname}:
+    parameters:
+      - name: shortname
+        in: path
+        required: true
+        description: Shortname of the license to be verified
+        schema:
+          type: string
+    put:
+      operationId: verifyLicense
+      tags:
+        - License
+        - Admin
+      summary: Verify a license as new or variant
+      description: >
+        Verify a license as new or variant of another license
+      requestBody:
+        description: The shortname of the parent license |
+          Same name if it's to be verified as a new license
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parentShortname:
+                  description: Shortname of the parent license
+                  type: string
+                  example:
+                    "MIT"
+      responses:
+        '200':
+          description: License verified successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '404':
+          description: Given License not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /license/merge/{shortname}:
+    parameters:
+      - name: shortname
+        in: path
+        required: true
+        description: Shortname of the license to be merged
+        schema:
+          type: string
+    put:
+      operationId: mergeLicense
+      tags:
+        - License
+        - Admin
+      summary: Merge a license with another
+      description: >
+        Merge a license to another existing license
+      requestBody:
+        description: The shortname of the parent license to be merged into
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parentShortname:
+                  description: Shortname of the parent license
+                  type: string
+                  example:
+                    "MIT"
+      responses:
+        '200':
+          description: License merged successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '404':
+          description: Given License not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /overview/database/contents:
+    get:
+      operationId: getDatabaseContents
+      tags:
+        - Overview
+        - Admin
+      summary: Get database contents
+      description: >
+        Get database contents for the dashboard display.
+      responses:
+        '200':
+          description: List of the database contents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GetDatabaseContent'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /overview/info/php:
+    get:
+      operationId: getPhpInfo
+      tags:
+        - Overview
+        - Admin
+      summary: Get PHP info
+      description: >
+        Get PHP info
+      responses:
+        '200':
+          description: PHP info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetPHPInfo'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /overview/disk/usage:
+    get:
+      operationId: getDiskUsage
+      tags:
+        - Overview
+        - Admin
+      summary: Get disk usage
+      description: >
+        Get disk usage
+      responses:
+        '200':
+          description: Disk usage response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DiskUsage'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /license/suggest:
+    post:
+      operationId: getSuggestedLicense
+      tags:
+        - License
+        - Admin
+      summary: Get suggested license by reference text.
+      description: >
+        Get a single suggested license by the given reference text.
+      requestBody:
+        description: Reference text to get suggested license
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                referenceText:
+                  description: Reference text to get suggested license
+                  type: string
+                  example:
+                    "According to MIT license, add some modifications"
+      responses:
+        '200':
+          description: Request is successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetSuggestedLicense'
+        '403':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /overview/database/metrics:
+    get:
+      operationId: getDatabaseMetrics
+      tags:
+        - Overview
+        - Admin
+      summary: Get database metrics
+      description: >
+        Get database metrics for the dashboard display.
+      responses:
+        '200':
+          description: List of the database metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GetDatabaseMetric'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
+  /overview/queries/active:
+    get:
+      operationId: getActiveQueries
+      tags:
+        - Overview
+        - Admin
+      summary: Get active queries
+      description: >
+        Get a list of active queries from the database.
+      responses:
+        '200':
+          description: List of active queries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GetActiveQuery'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Info'
+        default:
+          $ref: '#/components/responses/defaultResponse'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -4058,8 +5087,30 @@ components:
           type: integer
           description: assignee id of the upload.
           nullable: true
+        assigneeDate:
+          type: string
+          format: date-time
+          description: Date, when a user was assigned to the upload.
+          nullable: true
+        closingDate:
+          type: string
+          format: date-time
+          description: Date, when the upload was closed or rejected.
+          nullable: true
         hash:
           $ref: '#/components/schemas/Hash'
+    GetFolderContent:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Id of the folder content.
+        content:
+          type: string
+          description: Content of the folder.
+        removable:
+          type: boolean
+          description: Is the folder removable.
     UploadSummary:
       type: object
       properties:
@@ -4111,18 +5162,6 @@ components:
         content:
           type: string
           description: Copyright text
-        concludedNoLicenseFoundCount:
-          type: integer
-          description: No. of concluded no license found.
-        fileCount:
-          type: integer
-          description: No. of files in the upload.
-        noScannerLicenseFoundCount:
-          type: integer
-          description: No. of no scanner license found.
-        scannerUniqueLicenseCount:
-          type: integer
-          description: No. of unique licenses found by scanner.
     Fileinfo:
       type: object
       properties:
@@ -4141,6 +5180,15 @@ components:
         reuse_info:
           type: object
           description: Reuse info of the file.
+    SetCustomiseInfo:
+      type: object
+      properties:
+        key:
+          type: string
+          description: Key of the field to be updated
+        value:
+          type: string
+          description: Value of the field to be updated
     Job:
       type: object
       properties:
@@ -4358,6 +5406,17 @@ components:
         url:
           type: boolean
           description: URL(s) present in the scan code file.
+    SetConfInfo:
+      type: object
+      properties:
+        key:
+          type: string
+          description: Key of the field to be updated
+        value:
+          type: string
+          description: |
+            Value of the field to be updated. If value is a JSON, it should be
+            sent as an encoded string.
     Folder:
       type: object
       properties:
@@ -4530,18 +5589,18 @@ components:
               description: Link to download the report
               type: string
     GetFileCopyrights:
-      description: Copyright details of a file
+      description: CX details of a file
       type: object
       properties:
         content:
           type: string
-          description: Copyright content
+          description: CX content
         hash:
           type: string
-          description: copyright hash
-        copyright_count:
+          description: CX hash
+        count:
           type: integer
-          description: count of the copyrights
+          description: Count of the CXs
     ShowJob:
       description: History of all the jobs and the job queue info
       type: object
@@ -4768,7 +5827,7 @@ components:
       properties:
         key:
           description: field key
-          type: string          
+          type: string
         value:
           description: field value
           type: string
@@ -4776,12 +5835,12 @@ components:
           description: field type
           type: string
           enum:
-          - int
-          - text
-          - textarea
-          - password
-          - dropdown
-          - boolean
+            - int
+            - text
+            - textarea
+            - password
+            - dropdown
+            - boolean
         label:
           description: field label
           type: string
@@ -4794,8 +5853,6 @@ components:
         option_value:
           description: If type is 'dropdown', provide options in format op1{val1}|op2{val2}|...
           type: string
-
-            
     Group:
       description: Group object
       type: object
@@ -4823,7 +5880,7 @@ components:
           type: integer
           example:
             3
-                       
+
     GetBulkHistory:
       type: object
       properties:
@@ -4900,7 +5957,7 @@ components:
           items:
             type: string
             example: "GPL-2.0"
-            
+
     HighlightInfo:
       type: object
       properties:
@@ -4916,21 +5973,21 @@ components:
           type: string
           description: Type of highlight
           enum:
-            - M | Match
-            - MC | Changed
-            - MA | Added
-            - MD | Deleted
-            - S | Signature
-            - K | Keyword
-            - B | Bulk
-            - C | Copyright
-            - U | Url
-            - E | Email
-            - A | Author
-            - I | IPRA
-            - X | ECC
-            - KW | Keyword others
-            - any | Undefined
+            - M  # Match
+            - MC # Changed
+            - MA # Added
+            - MD # Deleted
+            - S  # Signature
+            - K  # Keyword
+            - B  # Bulk
+            - C  # Copyright
+            - U  # Url
+            - E  # Email
+            - A  # Author
+            - I  # IPRA
+            - X  # ECC
+            - KW # Keyword others
+            - any # Undefined
         shortName:
           type: string
           description: License shortname
@@ -4983,16 +6040,16 @@ components:
         successfulAgents:
           type: array
           items:
-              properties:
-                agent_id:
-                  type: integer
-                  example: 20
-                agent_rev:
-                  type: string
-                  example: "4.1.0.282-rc1.ffb851"
-                agent_name:
-                  type: string
-                  example: "reso"
+            properties:
+              agent_id:
+                type: integer
+                example: 20
+              agent_rev:
+                type: string
+                example: "4.1.0.282-rc1.ffb851"
+              agent_name:
+                type: string
+                example: "reso"
         uploadId:
           type: integer
           example: 10
@@ -5331,6 +6388,9 @@ components:
         delimiters:
           type: string
           example: "DEFAULT"
+        scanOnlyFindings:
+          type: boolean
+          example: false
     ScannedEditedLicense:
       type: object
       properties:
@@ -5412,6 +6472,45 @@ components:
         spdx_id:
           type: string
           example: LicenseRef-fossology-ACE
+    ObligationsList:
+      type: array
+      items:
+        properties:
+          id:
+            type: integer
+            example: 29
+          obligation_topic:
+            type: string
+            example: Obligation text
+    ObligationExtended:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Obligation'
+      properties:
+        modification:
+          type: boolean
+          description: Applies on modified text?
+        active:
+          type: boolean
+          description: Obligation is active/inactive
+        textUpdatable:
+          type: boolean
+          description: Obligation text can be updated?
+        licenses:
+          type: array
+          description: List of associated licenses with obligation
+          items:
+            type: string
+            description: Shortname of license
+        candidateLicenses:
+          type: array
+          description: List of associated candidate licenses with obligation
+          items:
+            type: string
+            description: Shortname of candidate license
+        hash:
+          type: string
+          description: MD5 hash of obligation text
     AddMember:
       description: UserMember options
       type: object
@@ -5773,6 +6872,220 @@ components:
             If TRUE, update the given standard comment.
             if FALSE, add new standard comment.
           example: true
+    GetDatabaseContent:
+      type: object
+      properties:
+        metric:
+          type: string
+          description: The metric associated with the object.
+          example: Users
+        total:
+          type: integer
+          description: The total count associated with the metric.
+          example: 2
+        lastVacuum:
+          type: string
+          description: The date and time of the last vacuum operation. If null, no vacuum operation has been performed.
+          example: "null"
+        lastAnalyze:
+          type: string
+          description: The date and time of the last analyze operation. If null, no analyze operation has been performed.
+          example: "null"
+    DiskUsage:
+      type: object
+      properties:
+        data:
+          type: array
+          description: "List of filesystem information"
+          items:
+            type: object
+            properties:
+              filesystem:
+                type: string
+                description: "Filesystem path"
+                example: "/dev/nvme0n1p6"
+              capacity:
+                type: string
+                description: "Total capacity of the filesystem"
+                example: "192G"
+              used:
+                type: string
+                description: "Used space in the filesystem"
+                example: "173G"
+              available:
+                type: string
+                description: "Available space in the filesystem"
+                example: "8.8G"
+              percentFull:
+                type: string
+                description: "Percentage of the filesystem used"
+                example: "96%"
+              mountPoint:
+                type: string
+                description: "Mount point of the filesystem"
+                example: "/"
+        notes:
+          type: object
+          description: "Additional notes"
+          properties:
+            database:
+              type: string
+              description: "Database location"
+              example: "/var/lib/postgresql/12/main"
+            repository:
+              type: string
+              description: "Repository location"
+              example: "/srv/fossology/repository"
+            fossologyConfig:
+              type: string
+              description: "Fossology configuration location"
+              example: "/usr/local/etc/fossology"
+    GetPHPInfo:
+      type: object
+      properties:
+        phpVersion:
+          type: string
+          description: "Version of PHP"
+          example: "7.4.3-4ubuntu2.18"
+        loadedExtensions:
+          type: array
+          description: "List of loaded extensions in PHP"
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "Name of the loaded extension"
+                example: "Core"
+              version:
+                type: string
+                description: "Version of the loaded extension"
+                example: "7.4.3-4ubuntu2.18"
+    AllServerJobs:
+      type: object
+      properties:
+        data:
+          type: array
+          description: "List of agents"
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "Name of the agent"
+                example: "decider"
+              running:
+                type: integer
+                description: "Number of running instances"
+                example: 0
+              pending:
+                type: integer
+                description: "Number of pending instances"
+                example: 1
+              eta:
+                type: string
+                description: "Estimated time of arrival"
+                example: "N/A"
+        scheduler:
+          type: string
+          description: "Current scheduler status"
+          enum:
+            - "Running"
+            - "Stopped"
+    GetSuggestedLicense:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: The primary key of the suggested license.
+          example: 1329
+        spdxName:
+          type: string
+          description: The SPDX identifier of the suggested license.
+          example: "LicenseRef-fossology-testmerge"
+        shortname:
+          type: string
+          description: The short name of the suggested license.
+          example: "MIT"
+        fullname:
+          type: string
+          description: The full name of the suggested license.
+          example: "MIT license"
+        text:
+          type: string
+          description: The text content of the suggested license.
+          example: "Copyright (c) 2002 by AUTHOR PROFESSIONAL IDENTIFICATION * URL \"PROMOTIONAL SLOGAN FOR AUTHOR'S PROFESSIONAL PRACTICE\"\r\n"
+        url:
+          type: string
+          description: The URL associated with the suggested license.
+          example: "https://www.google.com/"
+        notes:
+          type: string
+          description: Additional notes or comments about the suggested license.
+          example: "public notes"
+        risk:
+          type: integer
+          description: The risk level associated with the suggested license.
+          example: 2
+        highlights:
+          type: array
+          items:
+            $ref: '#/components/schemas/HighlightInfo'
+    GetDatabaseMetric:
+      type: object
+      properties:
+        metric:
+          type: string
+          description: The metric associated with the object.
+          example: FOSSology database size
+        total:
+          type: string
+          description: The total count associated with the metric.
+          example: "36"
+    GetActiveQuery:
+      properties:
+        pid:
+          type: integer
+          example: 1831
+        query:
+          type: string
+          enum:
+            - idle
+            - active
+        startTime:
+          type: string
+          format: date-time
+          example: "2023-09-28T05:15:05.227Z"
+        elapsed:
+          type: string
+          example: "00:01:06.961334"
+    GetSchedulerOption:
+      type: object
+      properties:
+        jobList:
+          type: array
+          description: "List of jobs"
+          items:
+            type: string
+          example: [ "scheduler" ]
+        priorityList:
+          type: array
+          description: "List of priorities"
+          items:
+            type: integer
+          example: [ -20, -19, -18 ]
+        verboseList:
+          type: array
+          description: "List of verbose levels"
+          items:
+            type: integer
+          example: [ 1, 3 ]
+        agentList:
+          type: array
+          description: "List of agents"
+          items:
+            type: string
+          example: [ "clixml", "pkgagent", "maintagent", "deciderjob" ]
   responses:
     defaultResponse:
       description: Some error occurred. Check the "message"

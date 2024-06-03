@@ -20,6 +20,7 @@ jobs:
         os:
           - 'debian:buster'
           - 'debian:bullseye'
+          - 'debian:bookworm'
           - 'ubuntu:focal'
           - 'ubuntu:jammy'
 
@@ -91,6 +92,8 @@ jobs:
       run: |
         cmake --build build --parallel
         cd build && cpack --config CPackConfig.cmake
+        # Generate random number between 3-22 for sleep in next step
+        echo DELAY_DURATION=$((4 + RANDOM % 20)) >> $GITHUB_ENV
 
     - name: Rename package
       run: |
@@ -98,8 +101,8 @@ jobs:
         mkdir -p packages
         mv build/*.deb packages/
         tar -czvf ${PACKAGE_NAME} packages
-        # Sleep between 3-22 seconds to allow GitHub API accept new packages
-        sleep $[$RANDOM % 20 + 3]s
+        # Sleep for DELAY_DURATION seconds to allow GitHub API accept new packages
+        sleep "${DELAY_DURATION}s"
 
     - name: Upload Release Asset
       id: upload-release-asset
@@ -148,3 +151,12 @@ jobs:
         labels: |
           org.opencontainers.image.version=${{ steps.get_release.outputs.tag_name }}.0
         context: .
+
+    - name: Build and push runner image
+      uses: docker/build-push-action@v3
+      with:
+        push: true
+        tags: fossology/fossology:${{ steps.get_release.outputs.tag_name }}-scanner
+        file: utils/automation/Dockerfile.ci
+        labels: |
+          org.opencontainers.image.version=${{ steps.get_release.outputs.tag_name }}.0

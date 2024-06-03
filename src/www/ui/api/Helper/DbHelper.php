@@ -16,6 +16,7 @@ require_once dirname(dirname(dirname(dirname(__DIR__)))) .
 
 use Fossology\Lib\Auth\Auth;
 use Fossology\Lib\Dao\FolderDao;
+use Fossology\Lib\Dao\UploadDao;
 use Fossology\Lib\Data\Folder\Folder;
 use Fossology\Lib\Db\DbManager;
 use Fossology\Lib\Db\ModernDbManager;
@@ -23,6 +24,7 @@ use Fossology\Lib\Exceptions\DuplicateTokenKeyException;
 use Fossology\Lib\Exceptions\DuplicateTokenNameException;
 use Fossology\Lib\Proxy\LicenseViewProxy;
 use Fossology\Lib\Proxy\UploadBrowseProxy;
+use Fossology\UI\Api\Models\ApiVersion;
 use Fossology\UI\Api\Models\Hash;
 use Fossology\UI\Api\Models\Job;
 use Fossology\UI\Api\Models\Upload;
@@ -47,15 +49,24 @@ class DbHelper
   private $folderDao;
 
   /**
+   * @var UploadDao $uploadDao
+   * UploadDao object
+   */
+  private $uploadDao;
+
+  /**
    * DbHelper constructor.
    *
    * @param DbManager $dbManager DB manager in use
    * @param FolderDao $folderDao Folder Dao to use
+   * @param UploadDao $uploadDao Upload Dao to use
    */
-  public function __construct(DbManager $dbManager, FolderDao $folderDao)
+  public function __construct(DbManager $dbManager, FolderDao $folderDao,
+    UploadDao $uploadDao)
   {
     $this->dbManager = $dbManager;
     $this->folderDao = $folderDao;
+    $this->uploadDao = $uploadDao;
   }
 
   /**
@@ -84,7 +95,7 @@ class DbHelper
    *         value
    */
   public function getUploads($userId, $groupId, $limit, $page = 1,
-    $uploadId = null, $options = null, $recursive = true)
+    $uploadId = null, $options = null, $recursive = true, $apiVersion=ApiVersion::V1)
   {
     $uploadProxy = new UploadBrowseProxy($groupId, 0, $this->dbManager);
     $folderId = $options["folderId"];
@@ -183,7 +194,11 @@ FROM $partialQuery $where ORDER BY upload_pk ASC LIMIT $limit OFFSET $" .
       $hash = new Hash($pfile_sha1, $pfile_md5, $pfile_sha256, $pfile_size);
       $upload = new Upload($folderId, $folderName, $uploadId,
         $row["upload_desc"], $row["upload_filename"], $row["upload_ts"], $row["assignee"], $hash);
-      array_push($uploads, $upload->getArray());
+      if (! empty($row["assignee"]) && $row["assignee"] != 1) {
+        $upload->setAssigneeDate($this->uploadDao->getAssigneeDate($uploadId));
+      }
+      $upload->setClosingDate($this->uploadDao->getClosedDate($uploadId));
+      $uploads[] = $upload->getArray($apiVersion);
     }
     return [$totalResult, $uploads];
   }

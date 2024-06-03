@@ -13,7 +13,6 @@ use Fossology\Lib\Data\Tree\ItemTreeBounds;
 use Fossology\Lib\Db\DbManager;
 use Fossology\Lib\Proxy\ScanJobProxy;
 use Fossology\Lib\Util\StringOperation;
-use Fossology\Lib\Data\AgentRef;
 use Monolog\Logger;
 
 class CopyrightDao
@@ -349,7 +348,7 @@ ORDER BY copyright_pk, UT.uploadtree_pk, content DESC";
     $statementName .= ".".$joinType."Join";
 
     if ($extrawhere !== null) {
-      $whereClause .= "AND ". $extrawhere;
+      $whereClause .= " AND ". $extrawhere;
       $statementName .= "._".$extrawhere."_";
     }
     $decisionTableKey = $tableNameDecision . "_pk";
@@ -480,8 +479,8 @@ ORDER BY copyright_pk, UT.uploadtree_pk, content DESC";
       $latestXpAgentId[] = $selectedScanners['reso'];
     }
     $agentFilter = '';
-    if (!empty($latestAgentId)) {
-      $latestAgentIds = implode(",", $latestAgentId);
+    if (!empty($latestXpAgentId)) {
+      $latestAgentIds = implode(",", $latestXpAgentId);
       $agentFilter = ' AND cp.agent_fk IN ('. $latestAgentIds .')';
     }
 
@@ -540,6 +539,7 @@ WHERE $withHash ( ut.lft BETWEEN $1 AND $2 ) $agentFilter AND ut.upload_fk = $3"
    * - copyright => copyright
    * - ecc       => ecc
    * - keyword   => keyword
+   * - ipra      => ipra
    * - scancode_copyright, scancode_author => scancode
    * - others    => copyright
    * @param string $table Table name
@@ -547,7 +547,7 @@ WHERE $withHash ( ut.lft BETWEEN $1 AND $2 ) $agentFilter AND ut.upload_fk = $3"
    */
   private function getAgentName($table)
   {
-    if (array_search($table, ["ecc", "keyword", "copyright"]) !== false) {
+    if (array_search($table, ["ecc", "keyword", "copyright", "ipra"]) !== false) {
       return $table;
     } else if (array_search($table, ["scancode_copyright", "scancode_author"]) !== false) {
       return "scancode";
@@ -639,7 +639,6 @@ WHERE $withHash ( ut.lft BETWEEN $1 AND $2 ) $agentFilter AND ut.upload_fk = $3"
     (CASE WHEN (ce.content IS NULL OR ce.content = '') THEN cp.content ELSE ce.content END) AS mcontent
     $unorderedQuery$grouping) as K";
     $iTotalRecordsRow = $this->dbManager->getSingleRow($countAllQuery, $params, __METHOD__, $tableName . "count.all" . ($activated ? '' : '_deactivated'));
-    $iTotalRecords = $iTotalRecordsRow['count'];
-    return $iTotalRecords;
+    return $iTotalRecordsRow['count'];
   }
 }
